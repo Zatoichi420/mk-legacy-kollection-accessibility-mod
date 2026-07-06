@@ -1,0 +1,27 @@
+{
+  "screen_id": "launcher__main_menu",
+  "game": "launcher",
+  "screen_type": "main_menu",
+  "source": "live_capture",
+  "source_note": "Recovered from an existing capture (title_before.png) taken during 2026-07-04/05 hotkey-safety testing, not a fresh F10 press - promoted into the library on 2026-07-06 during the course-correction pass.",
+  "verified_against_live_game": true,
+  "roi": [0, 0, 600, 720],
+  "roi_reason": "The right ~55% of this screen is a rotating/ambient background image unrelated to menu state - confirmed by comparing 5 separate captures of this identical menu, which hashed 39-66 bits apart at full-frame vs. 3-7 bits apart once cropped to this left column. Cropping to the static text column keeps the hash meaningful.",
+  "canonical_text": [
+    "MORTAL KOMBAT LEGACY KOLLECTION",
+    "PLAY",
+    "THE KRYPT",
+    "KOMBAT KARD"
+  ],
+  "notes": "Top-level main menu. Only 3 menu items are visible in this particular 1280x720 capture (PLAY, THE KRYPT, KOMBAT KARD, the last one partially clipped at the bottom edge) - there may be additional items below that never got captured (e.g. Extras/Options/Credits/Exit). Needs a fresh F10 capture scrolled/confirmed to see the full list before this is considered complete.",
+  "verified_by": "claude_vision",
+  "verified_at": "2026-07-06",
+  "ocr_lines_raw": [
+    {"text": "MORTAL", "bbox": [390.0, 195.0, 700.0, 273.0], "skip_highlight": true, "bbox_estimated": true},
+    {"text": "KOMBAT", "bbox": [390.0, 273.0, 700.0, 361.0], "skip_highlight": true},
+    {"text": "LEGACY KOLLECTION", "bbox": [165.0, 386.0, 700.0, 417.0], "skip_highlight": true},
+    {"text": "PLAY", "bbox": [398.0, 522.0, 482.0, 550.0]},
+    {"text": "THE KRYPT", "bbox": [344.0, 604.0, 534.0, 632.0]},
+    {"text": "KOMBAT KARD", "bbox": [321.0, 686.0, 558.0, 713.0], "ocr_original": "KOMBAT KARO"}
+  ]
+}

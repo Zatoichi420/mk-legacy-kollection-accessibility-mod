@@ -1,0 +1,17 @@
+{
+  "screen_id": "umk3__select_your_fighter",
+  "game": "umk3",
+  "screen_type": "character_select",
+  "source": "web",
+  "source_url": "https://mortalkombat.fandom.com/wiki/File:Umk3select.jpg",
+  "verified_against_live_game": false,
+  "canonical_text": [
+    "SELECT YOUR FIGHTER"
+  ],
+  "notes": "Character select grid (roughly 24 portraits, two side VS-portraits framed in red/green player-color borders), portraits only - no printed fighter names on the grid, no credits counter visible in this crop.",
+  "verified_by": "claude_vision",
+  "verified_at": "2026-07-06",
+  "ocr_lines_raw": [
+    {"text": "SELECT YOUR FIGHTER", "bbox": [68.0, 10.0, 329.0, 31.0]}
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "screen_id": "mk1__choose_your_fighter",
+  "game": "mk1",
+  "screen_type": "character_select",
+  "source": "web",
+  "source_url": "https://mortalkombat.fandom.com/wiki/File:MK_character_select.png",
+  "verified_against_live_game": false,
+  "canonical_text": [
+    "CHOOSE YOUR FIGHTER",
+    "CREDITS: 0"
+  ],
+  "notes": "Two-player character select grid, portraits only (no printed fighter names on the grid itself - names would need to be read from a per-fighter highlight state during live play, not yet supported for this game's UI style). Player 1 and Player 2 cursors shown as green/red boxes around portraits.",
+  "verified_by": "claude_vision",
+  "verified_at": "2026-07-06",
+  "ocr_lines_raw": [
+    {
+      "text": "CHOOSE YOUR FIGHTER",
+      "bbox": [100.0, 8.0, 308.0, 30.0],
+      "ocr_original": "CHOOSE youn FICHTE-R",
+      "skip_highlight": true
+    },
+    {
+      "text": "CREDITS: 0",
+      "bbox": [160.0, 233.0, 235.0, 248.0],
+      "ocr_original": "CREOiTS: O",
+      "skip_highlight": true
+    }
+  ]
+}

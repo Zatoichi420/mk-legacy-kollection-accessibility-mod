@@ -1,0 +1,18 @@
+{
+  "screen_id": "umk3__choose_your_destiny",
+  "game": "umk3",
+  "screen_type": "difficulty_select",
+  "source": "web",
+  "source_url": "https://mortalkombat.fandom.com/wiki/File:Ult._mk_ladder.png",
+  "verified_against_live_game": false,
+  "canonical_text": [
+    "CHOOSE YOUR DESTINY",
+    "MASTER"
+  ],
+  "notes": "Ladder/difficulty tower select screen. Four vertical towers of rank icons (glyphs, not readable text) leading up to a 'MASTER' dragon-logo badge at bottom right. OCR correctly read the header; MASTER label added by inspection.",
+  "verified_by": "claude_vision",
+  "verified_at": "2026-07-06",
+  "ocr_lines_raw": [
+    {"text": "CHOOSE YOUR DESTINY", "bbox": [118.0, 8.0, 279.0, 19.0]}
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "screen_id": "launcher__game_library_tabs",
+  "game": "launcher",
+  "screen_type": "game_library_tab_bar",
+  "source": "live_capture",
+  "source_note": "Recovered from sequence_tabbar/frame_000.png, captured 2026-07-05 during tab-bar highlight calibration - promoted into the library on 2026-07-06.",
+  "verified_against_live_game": true,
+  "roi": [0, 0, 1280, 230],
+  "roi_reason": "Cropped to the header band (GAME LIBRARY title + ALL/ARCADE/CONSOLE tabs) so the hash doesn't depend on which box-art thumbnails happen to be showing below - that grid changes with the selected tab/scroll position and isn't part of this screen's identity.",
+  "canonical_text": [
+    "GAME LIBRARY",
+    "ALL",
+    "ARCADE",
+    "CONSOLE"
+  ],
+  "notes": "Tab bar for filtering the game library. Confirmed live (2026-07-05) that all three tabs use the same cyan/gold highlight scheme as list menus, so find_highlighted_text_from_entry against the stored bboxes below should correctly announce which tab is selected as the user navigates.",
+  "verified_by": "claude_vision",
+  "verified_at": "2026-07-06",
+  "ocr_lines_raw": [
+    {"text": "GAME LIBRARY", "bbox": [151.0, 56.0, 537.0, 102.0], "skip_highlight": true},
+    {"text": "ALL", "bbox": [337.0, 177.0, 383.0, 200.0]},
+    {"text": "ARCADE", "bbox": [712.0, 177.0, 807.0, 200.0]},
+    {"text": "CONSOLE", "bbox": [1110.0, 177.0, 1210.0, 200.0]}
+  ]
+}

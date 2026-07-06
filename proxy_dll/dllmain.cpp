@@ -1,0 +1,118 @@
+// This DLL is placed alongside mk_legacy_kollection.exe as "dinput8.dll",
+// so Windows' DLL search order loads it instead of the real system one.
+// On load it locates the real system dinput8.dll (expected to be copied
+// into the game folder as "dinput8_orig.dll"), grabs pointers to its six
+// exports, and re-exports thin pass-through stubs with the same names so
+// game input keeps working unmodified. A background thread then installs
+// the Present hook (see present_hook.cpp) so we get a callback synced to
+// the game's render loop.
+
+#include "log.h"
+#include "present_hook.h"
+
+#include <windows.h>
+#include <string>
+
+typedef HRESULT(WINAPI* DirectInput8Create_t)(void*, unsigned long, void*, void*, void*);
+typedef HRESULT(WINAPI* DllCanUnloadNow_t)(void);
+typedef HRESULT(WINAPI* DllGetClassObject_t)(void*, void*, void*);
+typedef HRESULT(WINAPI* DllRegisterServer_t)(void);
+typedef HRESULT(WINAPI* DllUnregisterServer_t)(void);
+typedef void* (WINAPI* GetdfDIJoystick_t)(void);
+
+static DirectInput8Create_t   real_DirectInput8Create = nullptr;
+static DllCanUnloadNow_t      real_DllCanUnloadNow = nullptr;
+static DllGetClassObject_t    real_DllGetClassObject = nullptr;
+static DllRegisterServer_t    real_DllRegisterServer = nullptr;
+static DllUnregisterServer_t  real_DllUnregisterServer = nullptr;
+static GetdfDIJoystick_t      real_GetdfDIJoystick = nullptr;
+
+static std::wstring GetSelfDirectory(HMODULE hSelf)
+{
+    wchar_t modulePath[MAX_PATH] = {};
+    GetModuleFileNameW(hSelf, modulePath, MAX_PATH);
+    std::wstring path(modulePath);
+    size_t slash = path.find_last_of(L"\\/");
+    return (slash == std::wstring::npos) ? L"" : path.substr(0, slash + 1);
+}
+
+static void LoadRealDinput8(HMODULE hSelf)
+{
+    std::wstring dir = GetSelfDirectory(hSelf);
+    std::wstring realPath = dir + L"dinput8_orig.dll";
+
+    HMODULE hReal = LoadLibraryW(realPath.c_str());
+    if (!hReal)
+    {
+        LogLine("ERROR: could not load dinput8_orig.dll - input pass-through will fail!");
+        return;
+    }
+
+    real_DirectInput8Create  = reinterpret_cast<DirectInput8Create_t>(GetProcAddress(hReal, "DirectInput8Create"));
+    real_DllCanUnloadNow     = reinterpret_cast<DllCanUnloadNow_t>(GetProcAddress(hReal, "DllCanUnloadNow"));
+    real_DllGetClassObject   = reinterpret_cast<DllGetClassObject_t>(GetProcAddress(hReal, "DllGetClassObject"));
+    real_DllRegisterServer   = reinterpret_cast<DllRegisterServer_t>(GetProcAddress(hReal, "DllRegisterServer"));
+    real_DllUnregisterServer = reinterpret_cast<DllUnregisterServer_t>(GetProcAddress(hReal, "DllUnregisterServer"));
+    real_GetdfDIJoystick     = reinterpret_cast<GetdfDIJoystick_t>(GetProcAddress(hReal, "GetdfDIJoystick"));
+
+    LogLine("mk_accessibility proxy dinput8.dll loaded into host process; real dinput8_orig.dll resolved.");
+}
+
+static DWORD WINAPI InitThread(LPVOID hSelfRaw)
+{
+    HMODULE hSelf = reinterpret_cast<HMODULE>(hSelfRaw);
+    LoadRealDinput8(hSelf);
+    InstallPresentHook();
+    return 0;
+}
+
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
+{
+    if (reason == DLL_PROCESS_ATTACH)
+    {
+        DisableThreadLibraryCalls(hModule);
+        // Defer real work to a worker thread: DllMain runs under the
+        // loader lock, and creating a D3D11 device (for the Present hook)
+        // from here can deadlock.
+        HANDLE hThread = CreateThread(nullptr, 0, InitThread, hModule, 0, nullptr);
+        if (hThread) CloseHandle(hThread);
+    }
+    return TRUE;
+}
+
+extern "C" __declspec(dllexport) HRESULT WINAPI DirectInput8Create(void* a1, unsigned long a2, void* a3, void* a4, void* a5)
+{
+    return real_DirectInput8Create ? real_DirectInput8Create(a1, a2, a3, a4, a5) : E_FAIL;
+}
+
+// DllCanUnloadNow/DllGetClassObject are pre-declared by <combaseapi.h> with
+// plain (non-dllexport) linkage, so redefining them directly under
+// __declspec(dllexport) conflicts. Implement under different names and
+// re-export via linker pragma instead.
+extern "C" HRESULT WINAPI Hook_DllCanUnloadNow(void)
+{
+    return real_DllCanUnloadNow ? real_DllCanUnloadNow() : E_FAIL;
+}
+
+extern "C" HRESULT WINAPI Hook_DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv)
+{
+    return real_DllGetClassObject ? real_DllGetClassObject((void*)&rclsid, (void*)&riid, ppv) : E_FAIL;
+}
+
+#pragma comment(linker, "/export:DllCanUnloadNow=Hook_DllCanUnloadNow")
+#pragma comment(linker, "/export:DllGetClassObject=Hook_DllGetClassObject")
+
+extern "C" __declspec(dllexport) HRESULT WINAPI DllRegisterServer()
+{
+    return real_DllRegisterServer ? real_DllRegisterServer() : E_FAIL;
+}
+
+extern "C" __declspec(dllexport) HRESULT WINAPI DllUnregisterServer()
+{
+    return real_DllUnregisterServer ? real_DllUnregisterServer() : E_FAIL;
+}
+
+extern "C" __declspec(dllexport) void* WINAPI GetdfDIJoystick()
+{
+    return real_GetdfDIJoystick ? real_GetdfDIJoystick() : nullptr;
+}
