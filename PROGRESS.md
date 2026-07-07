@@ -1100,3 +1100,49 @@ on disk** from earlier sessions' dev/testing (`sequence/`,
    still never done, see §4's earlier checklist) using F10, then run the
    same Claude-vision correction pass on them before folding them into
    the library.
+
+### 5.6 F10 captures went missing (2026-07-06 evening) — found and fixed a real bug
+
+User ran `main.py` and pressed F10 across MK2/MK3/UMK3 arcade main menus and
+several submenus. Terminal looked completely normal (no errors), but
+**nothing showed up anywhere**: `known_screens/`, `library_misses/`, the
+whole project tree (checked every file modified in the last 6 hours - zero
+results), and Steam's own screenshot folder were all empty of anything new.
+
+**Root cause found**: `is_key_pressed()` sampled `GetAsyncKeyState`'s
+"currently held down" bit once per poll (~0.5-1.5s depending on whether
+that poll also ran live OCR) and compared it to the *previous* poll's
+sample to detect a fresh press. A real keyboard tap is often under 150ms -
+comfortably short enough to start and end entirely between two polls and
+never be seen at all. This isn't a rare edge case; it's a coin-flip (or
+worse) every single press, which fully explains a 100% miss rate across
+many attempts.
+
+**Fix**: switched to `GetAsyncKeyState`'s *other* bit - the low-order bit
+is a proper edge-triggered latch ("this key was pressed at some point
+since the last time anyone checked"), maintained by Windows itself, that
+cannot miss a press between polls the way a manual before/after comparison
+can. `is_key_pressed()` replaced with `was_key_pressed_since_last_check()`;
+the manual `hotkey_was_down`/`capture_hotkey_was_down` bookkeeping is gone
+since the OS now does that bookkeeping for us. This requires **restarting
+the reader** to take effect - the running process has the old code loaded
+in memory.
+
+**Not yet ruled out as a secondary factor**: some laptop keyboards route
+F10 through an Fn-lock/media-key layer by default, in which case the
+physical keypress may never generate a standard VK_F10 code at all
+regardless of any polling fix. If F10 still doesn't register after
+restarting with the fix above, try Fn+F10, or check for an Fn-lock toggle.
+
+**Unrelated, harmless discovery made while investigating**: there's a
+long-lived orphaned `python.exe` (PID visible via `tasklist`) stuck running
+in Windows Session 0 (a service session, not the interactive desktop) -
+almost certainly the same stray process noted on 2026-07-05 when a
+sandboxed shell's spawned process ended up in the wrong session and
+couldn't be killed from there either. It can never find the game window
+(wrong session) and is not related to tonight's issue - left alone, not
+worth chasing further unless it causes actual confusion later (e.g. two
+processes fighting over the same log file).
+
+**Next step**: restart `main.py` (stop the currently-running one, run it
+again to pick up the fix) and retry F10 on the MK2/MK3/UMK3 screens.

@@ -265,8 +265,15 @@ class NvdaSpeaker:
         self.lib.nvdaController_speakText(text)
 
 
-def is_key_pressed(vk):
-    return (win32api.GetAsyncKeyState(vk) & 0x8000) != 0
+def was_key_pressed_since_last_check(vk):
+    """Edge-triggered, not level-triggered: GetAsyncKeyState's low-order bit
+    latches "this key was pressed at some point since the last call for this
+    vk" and clears on read. A plain "is it down right now" check (the high
+    bit alone) can miss a real keypress entirely if it happens to fall
+    between two ~0.5s polls - a normal keyboard tap is often under 150ms,
+    well inside that gap. The latch bit can't miss it: it stays set across
+    any number of polls until someone reads it."""
+    return (win32api.GetAsyncKeyState(vk) & 0x1) != 0
 
 
 def main():
@@ -295,9 +302,6 @@ def main():
     last_spoken_highlight = None
     pending_highlight = None
     pending_highlight_seen_count = 0
-
-    hotkey_was_down = False
-    capture_hotkey_was_down = False
 
     def reset_tracking():
         nonlocal last_spoken_screen_key, pending_screen_key, pending_screen_payload
@@ -336,13 +340,8 @@ def main():
             time.sleep(POLL_INTERVAL_SECONDS)
             continue
 
-        hotkey_down = is_key_pressed(REREAD_HOTKEY_VK)
-        force_reread = hotkey_down and not hotkey_was_down
-        hotkey_was_down = hotkey_down
-
-        capture_hotkey_down = is_key_pressed(CAPTURE_HOTKEY_VK)
-        force_capture = capture_hotkey_down and not capture_hotkey_was_down
-        capture_hotkey_was_down = capture_hotkey_down
+        force_reread = was_key_pressed_since_last_check(REREAD_HOTKEY_VK)
+        force_capture = was_key_pressed_since_last_check(CAPTURE_HOTKEY_VK)
 
         if force_capture:
             lines = asyncio.run(ocr_image(img))
