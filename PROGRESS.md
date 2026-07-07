@@ -1146,3 +1146,14 @@ processes fighting over the same log file).
 
 **Next step**: restart `main.py` (stop the currently-running one, run it
 again to pick up the fix) and retry F10 on the MK2/MK3/UMK3 screens.
+
+### 5.7 Checkpoint (2026-07-06, later same evening)
+
+Fix from §5.6 is committed and pushed to the private GitHub repo
+(`mk-legacy-kollection-accessibility`, commit `28d3a5e`). As of this
+checkpoint: **not yet re-tested live** - no new files have appeared in
+`known_screens/` or `library_misses/` since the fix went in, so the
+restart-and-retry step above is still outstanding. Resume there: restart
+`main.py` and retry F10 on MK2/MK3/UMK3's main menu and submenus, then
+report back what got captured (or whether F10 still doesn't register, in
+which case check the Fn-lock possibility noted in §5.6).
