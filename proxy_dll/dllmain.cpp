@@ -58,10 +58,11 @@ static void LoadRealDinput8(HMODULE hSelf)
     LogLine("mk_accessibility proxy dinput8.dll loaded into host process; real dinput8_orig.dll resolved.");
 }
 
-static DWORD WINAPI InitThread(LPVOID hSelfRaw)
+static DWORD WINAPI InitThread(LPVOID)
 {
-    HMODULE hSelf = reinterpret_cast<HMODULE>(hSelfRaw);
-    LoadRealDinput8(hSelf);
+    // Only the Present hook's D3D11 device creation needs to be off-thread
+    // (see the comment in DllMain below) - InstallPresentHook itself
+    // guards against being usefully callable before this runs.
     InstallPresentHook();
     return 0;
 }
@@ -71,11 +72,27 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
     if (reason == DLL_PROCESS_ATTACH)
     {
         DisableThreadLibraryCalls(hModule);
-        // Defer real work to a worker thread: DllMain runs under the
-        // loader lock, and creating a D3D11 device (for the Present hook)
-        // from here can deadlock.
-        HANDLE hThread = CreateThread(nullptr, 0, InitThread, hModule, 0, nullptr);
+
+        // Resolve the real DirectInput8 exports synchronously, before
+        // DllMain returns. This must happen before any other code in the
+        // process can call our exported stubs (DirectInput8Create etc.) -
+        // previously this ran on the same background thread as the Present
+        // hook, which meant the exports could be called (returning E_FAIL,
+        // silently breaking gamepad input for the whole session) before
+        // real_DirectInput8Create was resolved, a race whose outcome
+        // depended purely on thread scheduling. LoadLibrary/GetProcAddress
+        // against a plain system-style DLL is the safe case the loader-lock
+        // guidance is fine with; only D3D11 device creation for the Present
+        // hook (below) risks deadlocking under the loader lock, so only
+        // that part stays deferred to a background thread.
+        LoadRealDinput8(hModule);
+
+        HANDLE hThread = CreateThread(nullptr, 0, InitThread, nullptr, 0, nullptr);
         if (hThread) CloseHandle(hThread);
+    }
+    else if (reason == DLL_PROCESS_DETACH)
+    {
+        UninstallPresentHook();
     }
     return TRUE;
 }

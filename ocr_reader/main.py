@@ -210,6 +210,17 @@ def find_highlighted_text_from_entry(img: Image.Image, entry):
     text recognition. Skips any stored line missing a bbox, or explicitly
     flagged "skip_highlight" (e.g. a decorative/logo line with an
     unconfirmed, estimated bbox not safe to sample)."""
+    capture_size = entry.get("capture_size")
+    if capture_size and tuple(capture_size) != img.size:
+        # The stored bboxes are absolute pixels from whatever window size
+        # was active when this screen was captured. Screen *recognition*
+        # (dHash) tolerates a resized window because it resizes to a fixed
+        # small grid, but sampling a pixel-color bbox at the wrong scale
+        # would silently check the wrong region instead of the highlight -
+        # skip rather than risk a wrong/missed highlight read. Entries
+        # captured before this field existed have no capture_size and are
+        # sampled as before (can't validate what wasn't recorded).
+        return None
     img_array = np.array(img.convert("RGB"))
     for line in entry.get("ocr_lines_raw", []):
         bbox = line.get("bbox")
@@ -249,6 +260,7 @@ def save_known_screen(img, lines, highlighted_text):
         "source": "live_capture",
         "canonical_text": None,  # needs hand verification before this entry is used for recognition
         "highlighted": highlighted_text,
+        "capture_size": list(img.size),  # validated against the live frame before trusting stored bboxes - see find_highlighted_text_from_entry
         "ocr_lines_raw": [{"text": l["text"], "bbox": l["bbox"]} for l in lines],
     }
     with open(os.path.join(KNOWN_SCREENS_DIR, name + ".json"), "w", encoding="utf-8") as f:

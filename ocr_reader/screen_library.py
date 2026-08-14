@@ -85,10 +85,18 @@ class ScreenLibrary:
                 canonical_text = data.get("canonical_text")
                 if not canonical_text:
                     continue  # not yet verified - skip rather than risk speaking raw/blank OCR
+                if any(not isinstance(t, str) or not t.strip() for t in canonical_text):
+                    # A blank/whitespace-only element joins into "", which is
+                    # falsy just like an empty list - the entry would load
+                    # "successfully" but never actually be spoken, silently,
+                    # forever. Treat it the same as missing canonical_text.
+                    print(f"Skipping library entry '{name}': canonical_text has a blank line.")
+                    continue
                 roi = data.get("roi")
                 img = Image.open(png_path)
                 img_hash = compute_dhash(img, roi)
-            except Exception:
+            except Exception as exc:
+                print(f"Skipping library entry '{name}': failed to load ({exc!r}).")
                 continue
             self.entries.append({
                 "screen_id": data.get("screen_id", name[:-5]),
@@ -96,6 +104,7 @@ class ScreenLibrary:
                 "notes": data.get("notes", ""),
                 "roi": roi,
                 "hash": img_hash,
+                "capture_size": data.get("capture_size"),
                 "ocr_lines_raw": data.get("ocr_lines_raw", []),
             })
 
@@ -105,9 +114,18 @@ class ScreenLibrary:
         best = None
         best_distance = None
         # Each entry may hash a different region (its own roi), so the
-        # frame's hash is recomputed per-entry rather than once globally.
+        # frame's hash depends on which roi is used - but many entries
+        # share the same roi (or no roi), so cache by roi within this call
+        # rather than recomputing an identical crop+hash for each of them.
+        # This runs twice a second and scales with library size, so it's
+        # worth avoiding the redundant work as the library grows.
+        hash_cache = {}
         for entry in self.entries:
-            frame_hash = compute_dhash(frame, entry["roi"])
+            roi_key = tuple(entry["roi"]) if entry["roi"] else None
+            frame_hash = hash_cache.get(roi_key)
+            if frame_hash is None:
+                frame_hash = compute_dhash(frame, entry["roi"])
+                hash_cache[roi_key] = frame_hash
             distance = hamming_distance(frame_hash, entry["hash"])
             if best_distance is None or distance < best_distance:
                 best = entry

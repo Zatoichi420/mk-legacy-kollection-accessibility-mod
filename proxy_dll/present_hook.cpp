@@ -19,8 +19,15 @@ static std::atomic<bool> g_hookInstalled{ false };
 
 static HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* swapChain, UINT syncInterval, UINT flags)
 {
-    uint64_t n = ++g_frameCount;
-    if (n == 1)
+    // Only log once, on the first frame. The earlier "every 600th frame"
+    // periodic log ran synchronous file I/O (fopen/fprintf/fclose under a
+    // mutex) directly on the game's render/present thread roughly every 10
+    // seconds forever - a real frame-hitch risk on a fighting game where
+    // frame timing matters, for telemetry nothing actually consumes. It also
+    // made mk_accessibility.log grow without bound for the life of the
+    // install. Confirming the hook fired once is enough to prove the render
+    // loop callback is alive; nothing needs the ongoing frame count.
+    if (++g_frameCount == 1)
     {
         LogLine("Present hook: first frame observed - render loop callback is alive.");
         DXGI_SWAP_CHAIN_DESC desc = {};
@@ -31,12 +38,6 @@ static HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* swapChain, UINT s
                 desc.BufferDesc.Width, desc.BufferDesc.Height, (int)desc.BufferDesc.Format, desc.Windowed);
             LogLine(buf);
         }
-    }
-    else if (n % 600 == 0)
-    {
-        char buf[128];
-        sprintf_s(buf, "Present hook: %llu frames observed.", static_cast<unsigned long long>(n));
-        LogLine(buf);
     }
     return oPresent(swapChain, syncInterval, flags);
 }
@@ -134,4 +135,13 @@ void InstallPresentHook()
     }
 
     LogLine("Present hook: installed successfully.");
+}
+
+void UninstallPresentHook()
+{
+    if (!g_hookInstalled.exchange(false))
+        return;
+
+    MH_DisableHook(MH_ALL_HOOKS);
+    MH_Uninitialize();
 }

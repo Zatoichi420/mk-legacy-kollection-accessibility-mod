@@ -9,8 +9,14 @@
 static std::wstring GetLogPath()
 {
     HMODULE hSelf = nullptr;
+    // UNCHANGED_REFCOUNT: without it, FROM_ADDRESS increments the module's
+    // reference count on every call - and this runs on every LogLine() call,
+    // i.e. every frame-1 and every-600th-frame log for the life of the
+    // process, leaking one reference each time. Code executing from within
+    // this module already guarantees it can't unload out from under us, so
+    // there's nothing to pin.
     GetModuleHandleExW(
-        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
         reinterpret_cast<LPCWSTR>(&GetLogPath),
         &hSelf);
 
