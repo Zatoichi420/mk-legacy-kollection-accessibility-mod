@@ -71,11 +71,15 @@ def find_window_for_process(process_name):
         if not win32gui.IsWindowVisible(hwnd):
             return True
         _, pid = win32process.GetWindowThreadProcessId(hwnd)
+        handle = None
         try:
             handle = win32api.OpenProcess(0x0400 | 0x0010, False, pid)
             exe_name = win32process.GetModuleFileNameEx(handle, 0)
         except Exception:
             return True
+        finally:
+            if handle is not None:
+                win32api.CloseHandle(handle)
         if exe_name.lower().endswith(process_name.lower()) and target_hwnd is None:
             rect = win32gui.GetWindowRect(hwnd)
             if rect[2] - rect[0] > 0 and rect[3] - rect[1] > 0:
@@ -96,30 +100,41 @@ def capture_window(hwnd):
     if width <= 0 or height <= 0:
         return None
 
-    hwnd_dc = win32gui.GetWindowDC(hwnd)
-    mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
-    save_dc = mfc_dc.CreateCompatibleDC()
+    hwnd_dc = None
+    mfc_dc = None
+    save_dc = None
+    save_bitmap = None
+    try:
+        hwnd_dc = win32gui.GetWindowDC(hwnd)
+        mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
+        save_dc = mfc_dc.CreateCompatibleDC()
 
-    save_bitmap = win32ui.CreateBitmap()
-    save_bitmap.CreateCompatibleBitmap(mfc_dc, width, height)
-    save_dc.SelectObject(save_bitmap)
+        save_bitmap = win32ui.CreateBitmap()
+        save_bitmap.CreateCompatibleBitmap(mfc_dc, width, height)
+        save_dc.SelectObject(save_bitmap)
 
-    ctypes.windll.user32.PrintWindow(hwnd, save_dc.GetSafeHdc(), PW_RENDERFULLCONTENT)
+        ctypes.windll.user32.PrintWindow(hwnd, save_dc.GetSafeHdc(), PW_RENDERFULLCONTENT)
 
-    bmpinfo = save_bitmap.GetInfo()
-    bmpstr = save_bitmap.GetBitmapBits(True)
-    img = Image.frombuffer(
-        "RGB",
-        (bmpinfo["bmWidth"], bmpinfo["bmHeight"]),
-        bmpstr, "raw", "BGRX", 0, 1,
-    )
-
-    win32gui.DeleteObject(save_bitmap.GetHandle())
-    save_dc.DeleteDC()
-    mfc_dc.DeleteDC()
-    win32gui.ReleaseDC(hwnd, hwnd_dc)
-
-    return img
+        bmpinfo = save_bitmap.GetInfo()
+        bmpstr = save_bitmap.GetBitmapBits(True)
+        img = Image.frombuffer(
+            "RGB",
+            (bmpinfo["bmWidth"], bmpinfo["bmHeight"]),
+            bmpstr, "raw", "BGRX", 0, 1,
+        )
+        return img
+    finally:
+        # Always release GDI resources, even if a call above raised - leaving
+        # any of these held leaks a handle every poll (twice a second) and
+        # can eventually exhaust the process's GDI handle quota.
+        if save_bitmap is not None:
+            win32gui.DeleteObject(save_bitmap.GetHandle())
+        if save_dc is not None:
+            save_dc.DeleteDC()
+        if mfc_dc is not None:
+            mfc_dc.DeleteDC()
+        if hwnd_dc is not None:
+            win32gui.ReleaseDC(hwnd, hwnd_dc)
 
 
 async def ocr_image(img: Image.Image):
@@ -317,124 +332,133 @@ def main():
         pending_highlight_seen_count = 0
 
     while True:
-        if hwnd is None or not win32gui.IsWindow(hwnd):
-            hwnd = find_window_for_process(PROCESS_NAME)
-            if hwnd is None:
-                if hwnd_ever_found:
-                    if window_missing_since is None:
-                        window_missing_since = time.monotonic()
-                    elif time.monotonic() - window_missing_since > EXIT_AFTER_WINDOW_GONE_SECONDS:
-                        print("Game window gone for a while; exiting.")
-                        return
-                print("Waiting for game window...")
-                time.sleep(2)
+        try:
+            if hwnd is None or not win32gui.IsWindow(hwnd):
+                hwnd = find_window_for_process(PROCESS_NAME)
+                if hwnd is None:
+                    if hwnd_ever_found:
+                        if window_missing_since is None:
+                            window_missing_since = time.monotonic()
+                        elif time.monotonic() - window_missing_since > EXIT_AFTER_WINDOW_GONE_SECONDS:
+                            print("Game window gone for a while; exiting.")
+                            return
+                    print("Waiting for game window...")
+                    time.sleep(2)
+                    continue
+                hwnd_ever_found = True
+                window_missing_since = None
+                print(f"Found game window: hwnd={hwnd}")
+                speaker.speak("Game window found.")
+                reset_tracking()
+
+            img = capture_window(hwnd)
+            if img is None:
+                time.sleep(POLL_INTERVAL_SECONDS)
                 continue
-            hwnd_ever_found = True
-            window_missing_since = None
-            print(f"Found game window: hwnd={hwnd}")
-            speaker.speak("Game window found.")
-            reset_tracking()
 
-        img = capture_window(hwnd)
-        if img is None:
-            time.sleep(POLL_INTERVAL_SECONDS)
-            continue
+            force_reread = was_key_pressed_since_last_check(REREAD_HOTKEY_VK)
+            force_capture = was_key_pressed_since_last_check(CAPTURE_HOTKEY_VK)
 
-        force_reread = was_key_pressed_since_last_check(REREAD_HOTKEY_VK)
-        force_capture = was_key_pressed_since_last_check(CAPTURE_HOTKEY_VK)
-
-        if force_capture:
-            lines = asyncio.run(ocr_image(img))
-            highlighted_text = find_highlighted_text(img, lines)
-            name = save_known_screen(img, lines, highlighted_text)
-            print(f"Captured candidate library screen: {name}")
-            speaker.speak("Captured: " + name.replace("_", " ") + ". Needs review before it will be read automatically.")
-            time.sleep(POLL_INTERVAL_SECONDS)
-            continue
-
-        match_result = library.match(img)
-
-        if force_reread:
-            if match_result:
-                entry, distance = match_result
-                print(f"Manual re-read (F9): library match '{entry['screen_id']}' (distance={distance}).")
-                highlighted_text = find_highlighted_text_from_entry(img, entry)
-                to_speak = highlighted_text if highlighted_text else ". ".join(entry["canonical_text"])
-                screen_key = ("lib", entry["screen_id"])
-            else:
+            if force_capture:
                 lines = asyncio.run(ocr_image(img))
-                screen_texts = [l["text"] for l in lines]
                 highlighted_text = find_highlighted_text(img, lines)
-                print("Manual re-read (F9): no library match, using live OCR.")
-                to_speak = highlighted_text if highlighted_text else (". ".join(screen_texts) if screen_texts else "No text detected.")
-                screen_key = ("ocr", tuple(screen_texts))
-            speaker.speak(to_speak)
-            last_spoken_screen_key = screen_key
-            pending_screen_key = None
-            pending_screen_seen_count = 0
-            last_spoken_highlight = highlighted_text
-            pending_highlight = None
-            pending_highlight_seen_count = 0
-            time.sleep(POLL_INTERVAL_SECONDS)
-            continue
+                name = save_known_screen(img, lines, highlighted_text)
+                print(f"Captured candidate library screen: {name}")
+                speaker.speak("Captured: " + name.replace("_", " ") + ". Needs review before it will be read automatically.")
+                time.sleep(POLL_INTERVAL_SECONDS)
+                continue
 
-        # --- Determine what's on screen this poll, library-first ---
-        if match_result:
-            entry, distance = match_result
-            screen_key = ("lib", entry["screen_id"])
-            screen_payload = ". ".join(entry["canonical_text"])
-            screen_ocr_texts = None  # not applicable in library mode
-            highlighted_text = find_highlighted_text_from_entry(img, entry)
-        else:
-            lines = asyncio.run(ocr_image(img))
-            screen_texts = [l["text"] for l in lines]
-            screen_key = ("ocr", tuple(screen_texts))
-            screen_payload = ". ".join(screen_texts) if screen_texts else None
-            screen_ocr_texts = screen_texts
-            highlighted_text = find_highlighted_text(img, lines)
+            match_result = library.match(img)
 
-        # --- Screen-level change detection (e.g. main menu -> submenu) ---
-        if screen_key == last_spoken_screen_key:
-            pending_screen_key = None
-            pending_screen_seen_count = 0
-        elif screen_key == pending_screen_key:
-            pending_screen_seen_count += 1
-            if pending_screen_seen_count >= STABLE_POLLS_REQUIRED and screen_payload:
-                print("Screen changed (stable):", screen_key)
-                speaker.speak(screen_payload)
-                if screen_key[0] == "ocr":
-                    log_library_miss(img, screen_ocr_texts)
+            if force_reread:
+                if match_result:
+                    entry, distance = match_result
+                    print(f"Manual re-read (F9): library match '{entry['screen_id']}' (distance={distance}).")
+                    highlighted_text = find_highlighted_text_from_entry(img, entry)
+                    to_speak = highlighted_text if highlighted_text else ". ".join(entry["canonical_text"])
+                    screen_key = ("lib", entry["screen_id"])
+                else:
+                    lines = asyncio.run(ocr_image(img))
+                    screen_texts = [l["text"] for l in lines]
+                    highlighted_text = find_highlighted_text(img, lines)
+                    print("Manual re-read (F9): no library match, using live OCR.")
+                    to_speak = highlighted_text if highlighted_text else (". ".join(screen_texts) if screen_texts else "No text detected.")
+                    screen_key = ("ocr", tuple(screen_texts))
+                speaker.speak(to_speak)
                 last_spoken_screen_key = screen_key
                 pending_screen_key = None
                 pending_screen_seen_count = 0
-                # The screen-read already covered whatever's highlighted on it.
                 last_spoken_highlight = highlighted_text
                 pending_highlight = None
                 pending_highlight_seen_count = 0
-        else:
-            pending_screen_key = screen_key
-            pending_screen_ocr_texts = screen_ocr_texts
-            pending_screen_seen_count = 1
+                time.sleep(POLL_INTERVAL_SECONDS)
+                continue
 
-        # --- Highlight-change detection (cursor moved within the same screen) ---
-        screen_just_changed = screen_key != last_spoken_screen_key
-        if not screen_just_changed:
-            if highlighted_text == last_spoken_highlight:
-                pending_highlight = None
-                pending_highlight_seen_count = 0
-            elif highlighted_text == pending_highlight:
-                pending_highlight_seen_count += 1
-                if pending_highlight_seen_count >= STABLE_POLLS_REQUIRED and highlighted_text:
-                    print("Highlight changed (stable):", highlighted_text)
-                    speaker.speak(highlighted_text)
+            # --- Determine what's on screen this poll, library-first ---
+            if match_result:
+                entry, distance = match_result
+                screen_key = ("lib", entry["screen_id"])
+                screen_payload = ". ".join(entry["canonical_text"])
+                screen_ocr_texts = None  # not applicable in library mode
+                highlighted_text = find_highlighted_text_from_entry(img, entry)
+            else:
+                lines = asyncio.run(ocr_image(img))
+                screen_texts = [l["text"] for l in lines]
+                screen_key = ("ocr", tuple(screen_texts))
+                screen_payload = ". ".join(screen_texts) if screen_texts else None
+                screen_ocr_texts = screen_texts
+                highlighted_text = find_highlighted_text(img, lines)
+
+            # --- Screen-level change detection (e.g. main menu -> submenu) ---
+            if screen_key == last_spoken_screen_key:
+                pending_screen_key = None
+                pending_screen_seen_count = 0
+            elif screen_key == pending_screen_key:
+                pending_screen_seen_count += 1
+                if pending_screen_seen_count >= STABLE_POLLS_REQUIRED and screen_payload:
+                    print("Screen changed (stable):", screen_key)
+                    speaker.speak(screen_payload)
+                    if screen_key[0] == "ocr":
+                        log_library_miss(img, screen_ocr_texts)
+                    last_spoken_screen_key = screen_key
+                    pending_screen_key = None
+                    pending_screen_seen_count = 0
+                    # The screen-read already covered whatever's highlighted on it.
                     last_spoken_highlight = highlighted_text
                     pending_highlight = None
                     pending_highlight_seen_count = 0
             else:
-                pending_highlight = highlighted_text
-                pending_highlight_seen_count = 1
+                pending_screen_key = screen_key
+                pending_screen_ocr_texts = screen_ocr_texts
+                pending_screen_seen_count = 1
 
-        time.sleep(POLL_INTERVAL_SECONDS)
+            # --- Highlight-change detection (cursor moved within the same screen) ---
+            screen_just_changed = screen_key != last_spoken_screen_key
+            if not screen_just_changed:
+                if highlighted_text == last_spoken_highlight:
+                    pending_highlight = None
+                    pending_highlight_seen_count = 0
+                elif highlighted_text == pending_highlight:
+                    pending_highlight_seen_count += 1
+                    if pending_highlight_seen_count >= STABLE_POLLS_REQUIRED and highlighted_text:
+                        print("Highlight changed (stable):", highlighted_text)
+                        speaker.speak(highlighted_text)
+                        last_spoken_highlight = highlighted_text
+                        pending_highlight = None
+                        pending_highlight_seen_count = 0
+                else:
+                    pending_highlight = highlighted_text
+                    pending_highlight_seen_count = 1
+
+            time.sleep(POLL_INTERVAL_SECONDS)
+        except Exception as exc:
+            # A single bad poll (e.g. the game window died mid-capture)
+            # must never kill the whole reader - with no console attached
+            # in normal use, an uncaught exception here means NVDA just
+            # goes silent with no indication anything went wrong. Log it
+            # and keep polling instead.
+            print(f"Poll cycle failed, skipping and continuing: {exc!r}")
+            time.sleep(POLL_INTERVAL_SECONDS)
 
 
 if __name__ == "__main__":
