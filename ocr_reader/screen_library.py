@@ -121,6 +121,18 @@ class ScreenLibrary:
         # worth avoiding the redundant work as the library grows.
         hash_cache = {}
         for entry in self.entries:
+            if entry["roi"] and entry["capture_size"] and tuple(entry["capture_size"]) != tuple(frame.size):
+                # This entry's roi is an absolute-pixel box calibrated for a
+                # specific frame size. PIL's crop() doesn't raise on an
+                # out-of-bounds box, it silently returns whatever pixels are
+                # there - so cropping it against a differently-sized live
+                # frame wouldn't just miss (safe, falls back to OCR), it
+                # could hash the wrong region and coincidentally land within
+                # the match threshold, confidently speaking the wrong
+                # screen's canonical_text. Skip this entry as a candidate
+                # rather than risk that; entries with no roi hash the whole
+                # frame, which dHash already tolerates a resize of.
+                continue
             roi_key = tuple(entry["roi"]) if entry["roi"] else None
             frame_hash = hash_cache.get(roi_key)
             if frame_hash is None:

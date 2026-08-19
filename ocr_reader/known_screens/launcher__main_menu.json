@@ -5,6 +5,7 @@
   "source": "live_capture",
   "source_note": "Recovered from an existing capture (title_before.png) taken during 2026-07-04/05 hotkey-safety testing, not a fresh F10 press - promoted into the library on 2026-07-06 during the course-correction pass.",
   "verified_against_live_game": true,
+  "capture_size": [1280, 720],
   "roi": [0, 0, 600, 720],
   "roi_reason": "The right ~55% of this screen is a rotating/ambient background image unrelated to menu state - confirmed by comparing 5 separate captures of this identical menu, which hashed 39-66 bits apart at full-frame vs. 3-7 bits apart once cropped to this left column. Cropping to the static text column keeps the hash meaningful.",
   "canonical_text": [

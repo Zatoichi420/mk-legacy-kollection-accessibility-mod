@@ -1157,3 +1157,166 @@ restart-and-retry step above is still outstanding. Resume there: restart
 `main.py` and retry F10 on MK2/MK3/UMK3's main menu and submenus, then
 report back what got captured (or whether F10 still doesn't register, in
 which case check the Fn-lock possibility noted in §5.6).
+
+---
+
+## 6. Full agent-based audit + alternatives research (2026-08-19)
+
+Three parallel agents were run: a fresh full audit of `ocr_reader/`'s
+Python code (independent of the 2026-08-14 audit, re-verifying its fixes
+rather than trusting them), a full audit of the dormant `proxy_dll/` code,
+and research into whether a better overall approach exists than the
+current OCR + reference-library design.
+
+### 6.1 Research verdict: keep the current design
+
+No better approach was found - the harder route already abandoned (hooking
+Dear ImGui directly in memory) is a confirmed dead end, not just
+unexplored: the real technology for exposing an immediate-mode UI's widget
+tree to Windows accessibility APIs (AccessKit) only works for apps built
+with it from source, and this game ships a stripped binary with no such
+hooks. No sibling Digital Eclipse "Kollection" title has a known
+accessibility fix either - this project is first-of-its-kind for this
+engine. Two cheap, optional *additions* (not replacements) were identified:
+**NVDA+R** (NVDA's own built-in OCR command) as a free manual fallback for
+any screen not yet in the library, and the **"AI Content Describer" NVDA
+add-on** (github.com/cartertemm/AI-content-describer) - install the
+`.nvda-addon` release, configure a Claude API key under NVDA Settings → AI
+Content Describer → Manage models, then **NVDA+Shift+I → "Describe the
+entire screen"** sends a screenshot to Claude and speaks the description.
+Useful specifically for a screen the automatic reader is staying silent on
+(see 6.2 finding 6's fix below - this is a good manual complement to it),
+not for real-time play (multi-second API latency).
+
+### 6.2 Python reader audit: 7 findings, all fixed same day
+
+The 2026-08-14 fixes (GDI/process-handle leaks, poll-loop try/except,
+absolute-path launch fix, blank-`canonical_text` rejection) were confirmed
+to hold up. But this fresh pass found real gaps, mostly forms of
+**silent** failure - the worst outcome for someone who can't see a log:
+
+1. **`NvdaSpeaker()` construction had no retry and ran outside the
+   hardened poll loop.** If NVDA was still finishing its own startup when
+   Steam launched the game (a plausible race, especially with voice packs
+   loading), the reader crashed immediately with zero reading for the
+   whole session. **Fixed**: `wait_for_nvda()` retries for up to 60s
+   before giving up, and now beeps audibly (via `winsound`, works even
+   without NVDA) if it never connects - a distinguishable "something's
+   wrong" signal instead of pure silence.
+2. **`NvdaSpeaker.speak()` never checked NVDA's own return codes.**
+   `nvdaController_speakText`/`_cancelSpeech` return an error code that
+   ctypes never raises on - so if NVDA restarted or the RPC channel
+   dropped mid-session, every future `speak()` call became a silent
+   no-op forever, with nothing for the existing try/except to catch.
+   **Fixed**: `speak()` now checks the return code, tracks consecutive
+   failures, beeps (rate-limited, not spammed) on failure, and
+   self-heals automatically the next time NVDA accepts a call - no
+   restart needed.
+3. **The 2026-08-14 hardening introduced a zombie-process regression.**
+   Before that fix, an uncaught exception killed the process and the next
+   game relaunch would start a fresh, healthy reader. After it, the loop
+   retries forever on *any* persistent failure (not just the window being
+   gone, which already had its own exit timer), blocking any future
+   relaunch's duplicate-instance check from ever spawning a working
+   reader. **Fixed**: a new `EXIT_AFTER_CONSECUTIVE_POLL_FAILURES` counter
+   (240 polls, reset on any successful poll) restores the "let a relaunch
+   recover" behavior for genuinely persistent failures while still
+   tolerating transient ones.
+4. **The `capture_size` resolution-mismatch guard (added 2026-08-14) was
+   dead on arrival** - all 11 live library entries predated that field, so
+   it protected nothing. **Fixed**: backfilled `capture_size` on all 11
+   `known_screens/*.json` entries with canonical text, from each PNG's
+   actual pixel dimensions (verified: the 4 launcher entries are
+   1280x720, matching the live game window; the 7 web-sourced arcade/PS1
+   entries are various smaller sizes, correctly making them ineligible
+   for highlight-bbox sampling against a live 1280x720 frame, which is
+   the safe direction).
+5. **The core screen-*recognition* path (dHash matching, not just
+   highlight sampling) had no resolution-mismatch protection at all** -
+   worse than silence, since PIL's `crop()` doesn't raise on an
+   out-of-bounds box, a wrongly-sized frame could hash the wrong region
+   and coincidentally match a *different* library entry, confidently
+   speaking the wrong screen's text (e.g. announcing the main menu while
+   a quit dialog is actually up). **Fixed**: `ScreenLibrary.match()` now
+   skips any entry with an `roi` whose `capture_size` doesn't match the
+   live frame, rather than risking a bad crop. Verified: matching a
+   resized (960x540) copy of the main menu now correctly returns no
+   match at all (falls back to safe live OCR) instead of a bogus one.
+6. **Screen-change debounce could starve indefinitely on any uncatalogued
+   screen.** Classic-game OCR is noisy enough that two consecutive polls
+   rarely come back byte-for-byte identical, and the old logic required
+   exact stability before speaking anything - so a screen not yet in the
+   library could flicker forever and never get announced, with no way
+   for the user to know something changed. **Fixed**: after
+   `FORCE_SPEAK_AFTER_UNSTABLE_POLLS` (8) consecutive "something's
+   different" polls without ever stabilizing, the reader now speaks the
+   latest OCR reading once as best-effort rather than staying silent
+   (library-matched screens don't need this - they're pre-verified text,
+   not noisy live OCR). The AI Content Describer add-on (6.1) is a good
+   manual complement for these cases too.
+7. **`start_reader.vbs`'s WMI-based duplicate-instance check could
+   silently stop protecting against duplicates** if WMI itself became
+   persistently (not just transiently) unavailable - `On Error Resume
+   Next` treated any failure as "assume nothing's running," which could
+   spawn a second reader on top of an already-running one, both talking
+   over each other on NVDA. **Fixed properly rather than patched**: moved
+   duplicate-instance protection into `main.py` itself as a PID lock file
+   (`acquire_single_instance_lock`/`release_single_instance_lock`,
+   `ocr_reader/reader.lock`, gitignored) with stale-lock detection (a
+   lock naming a PID that's no longer running is safely taken over, so
+   even a hard kill self-heals). This has no WMI dependency at all, so
+   `start_reader.vbs` was simplified to just launch `run_reader.bat`
+   unconditionally - `main.py` now exits immediately, before ever
+   touching NVDA, if another instance already holds the lock. Unit-tested
+   directly: fresh acquire, re-acquire from the same PID, taking over a
+   stale lock, correctly refusing to acquire over a real running PID, and
+   correctly refusing to release a lock it doesn't own.
+
+All fixes verified via `py_compile`, a JSON-validity pass over every
+`known_screens/*.json`, and a direct import/functional test of
+`ScreenLibrary.match()` against both a native-resolution and an
+artificially-resized frame. **Not yet live-tested against the actual
+running game** - that remains the next step (see 6.4).
+
+### 6.3 proxy_dll audit: confirmed safe, two documentation fixes applied
+
+Verdict: genuinely safe sitting disabled in the game folder today (the
+real Windows `dinput8.dll` is confirmed correctly restored there, and the
+disabled proxy sits under a filename nothing will ever load). All three
+claimed 2026-08-14 fixes (startup race, render-thread log stutter, module
+refcount leak) were independently re-verified as real and correct, not
+just trusted from the commit message. One low-severity code issue found
+(`InstallPresentHook` marks itself "installed" before confirming success,
+so an uninitialized MinHook instance could be torn down on detach - MinHook
+tolerates this today, not currently exploitable, left as-is since the code
+path is dormant). Two real risks were documentation-only (no code bug, just
+missing warnings for a future session): the proxy's fallback file
+(`dinput8_orig.dll`) no longer exists, so re-enabling it without restoring
+that file first would silently break all gamepad input; and the disabled
+copy currently in the game folder predates the 2026-08-14 fixes. **Both
+addressed**: added `proxy_dll/README.md` and a warning comment on
+`LoadRealDinput8` in `dllmain.cpp`.
+
+### 6.4 Resume-here checklist (current)
+
+1. **Live-test everything from today's session together** - launch the
+   real game with NVDA running, confirm: normal screens still speak
+   correctly, F9/F10 still work, and ideally force a failure (e.g.
+   temporarily close NVDA mid-session) to confirm the new beep-and-
+   self-heal behavior actually fires and recovers once NVDA reopens.
+   Nothing above has touched a live game session - all six code fixes
+   were verified by direct unit/functional testing of the code in
+   isolation, not by running the actual capture/NVDA loop against the
+   game.
+2. Once confirmed, push the accumulated local commits (now more than the
+   2 that were already ahead of `origin/master`) to the private GitHub
+   repo.
+3. Everything still outstanding from §5.5's resume checklist remains
+   open, unchanged by today's session: complete the launcher main-menu
+   and quit-dialog entries (both known to be cut off), capture
+   Options/Extras/Credits and a second game's submenu, and do the
+   long-outstanding live captures for MK3, Trilogy, and Special Forces
+   (never done - see §4/§5 checklists).
+4. Optional, low-effort: install the "AI Content Describer" NVDA add-on
+   (6.1) as a standing manual fallback - no project code changes needed,
+   just NVDA-side setup.

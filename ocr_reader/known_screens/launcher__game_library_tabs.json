@@ -5,6 +5,7 @@
   "source": "live_capture",
   "source_note": "Recovered from sequence_tabbar/frame_000.png, captured 2026-07-05 during tab-bar highlight calibration - promoted into the library on 2026-07-06.",
   "verified_against_live_game": true,
+  "capture_size": [1280, 720],
   "roi": [0, 0, 1280, 230],
   "roi_reason": "Cropped to the header band (GAME LIBRARY title + ALL/ARCADE/CONSOLE tabs) so the hash doesn't depend on which box-art thumbnails happen to be showing below - that grid changes with the selected tab/scroll position and isn't part of this screen's identity.",
   "canonical_text": [

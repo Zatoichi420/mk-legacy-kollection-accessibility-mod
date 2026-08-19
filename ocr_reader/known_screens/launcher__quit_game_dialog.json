@@ -5,6 +5,7 @@
   "source": "live_capture",
   "source_note": "Recovered from enter_after.png, captured 2026-07-05 during the 'synthetic Enter key unexpectedly opened a Quit Game dialog' safety incident (see PROGRESS.md) - promoted into the library on 2026-07-06.",
   "verified_against_live_game": true,
+  "capture_size": [1280, 720],
   "roi": [560, 80, 1280, 650],
   "roi_reason": "Excludes the dimmed main menu bleeding through on the left side of this overlay, which would otherwise tie this screen's hash to whatever background art the main menu happened to be showing underneath.",
   "canonical_text": [

@@ -5,6 +5,7 @@ __pycache__/
 # Runtime output, not source
 ocr_reader/reader_log.txt
 ocr_reader/library_misses/
+ocr_reader/reader.lock
 
 # Dev/calibration scratch captures - large, superseded by ocr_reader/known_screens/
 # (a handful of these were hand-reviewed and promoted into known_screens/ already)

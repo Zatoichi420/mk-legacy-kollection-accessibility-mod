@@ -5,6 +5,7 @@
   "source": "live_capture",
   "source_note": "Recovered from sequence/frame_000.png (identical across all 28 frames in that sequence - the cursor never moved off FATALITY TRAINING during that capture run), taken 2026-07-05 during highlight-color calibration - promoted into the library on 2026-07-06.",
   "verified_against_live_game": true,
+  "capture_size": [1280, 720],
   "canonical_text": [
     "GAME LIBRARY",
     "PLAY GAME",

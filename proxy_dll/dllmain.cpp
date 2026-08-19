@@ -36,6 +36,17 @@ static std::wstring GetSelfDirectory(HMODULE hSelf)
     return (slash == std::wstring::npos) ? L"" : path.substr(0, slash + 1);
 }
 
+// WARNING for anyone re-enabling this DLL in the future (it is currently
+// DISABLED - see proxy_dll/README.md): this proxy is only safe to load as
+// "dinput8.dll" in the game folder if a copy of the real system DLL is
+// ALSO present there as "dinput8_orig.dll". That file no longer exists
+// anywhere in the game folder or this repo (removed when the proxy was
+// disabled during the 2026-08-14 audit). Without it, LoadLibraryW below
+// fails, every real_* pointer stays null, every exported function returns
+// a failure code for the rest of the process's life, and gamepad/
+// DirectInput input silently breaks - with only the one log line below as
+// any indication anything went wrong. Restore dinput8_orig.dll (a plain
+// copy of the real Windows dinput8.dll) before ever re-enabling this.
 static void LoadRealDinput8(HMODULE hSelf)
 {
     std::wstring dir = GetSelfDirectory(hSelf);

@@ -33,6 +33,7 @@ import json
 import os
 import re
 import time
+import winsound
 
 import numpy as np
 import win32api
@@ -56,11 +57,25 @@ CAPTURE_HOTKEY_VK = 0x79  # VK_F10
 # has been gone this long (covers "player closed the game").
 EXIT_AFTER_WINDOW_GONE_SECONDS = 120
 STABLE_POLLS_REQUIRED = 2  # OCR/highlight can be slightly noisy frame-to-frame; require it to settle before speaking
+# Classic-game OCR can be noisy enough to never repeat two polls in a row
+# identically (see PROGRESS.md) - without this, an uncatalogued screen could
+# stay silent forever waiting for exact stability. After this many
+# consecutive polls of "something changed, just not the same way twice",
+# speak the latest OCR reading once as best-effort instead of waiting.
+FORCE_SPEAK_AFTER_UNSTABLE_POLLS = 8
+# A single bad poll is tolerated (see the try/except in the main loop), but
+# if failures never stop (not just "the window is gone", which has its own
+# handling above), the old crash-and-let-a-relaunch-recover behavior is
+# restored here instead of retrying forever as a zombie that blocks any
+# future relaunch's duplicate-instance check from ever starting a fresh,
+# healthy reader.
+EXIT_AFTER_CONSECUTIVE_POLL_FAILURES = 240
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 NVDA_DLL_PATH = os.path.join(SCRIPT_DIR, "nvda_controller_client", "x64", "nvdaControllerClient.dll")
 KNOWN_SCREENS_DIR = os.path.join(SCRIPT_DIR, "known_screens")
 LIBRARY_MISSES_DIR = os.path.join(SCRIPT_DIR, "library_misses")
+LOCK_FILE_PATH = os.path.join(SCRIPT_DIR, "reader.lock")
 
 
 def find_window_for_process(process_name):
@@ -280,16 +295,118 @@ def log_library_miss(img, screen_texts):
         json.dump({"ocr_text": screen_texts}, f, indent=2)
 
 
+def _audible_alert():
+    """A beep is audible even when NVDA itself is the thing that's broken -
+    the one signal that can reach the user when the tool whose entire job is
+    producing audio has stopped doing so. Never let a failure here (e.g. no
+    sound device) become a second exception on top of the first."""
+    try:
+        winsound.Beep(400, 300)
+    except Exception:
+        pass
+
+
 class NvdaSpeaker:
     def __init__(self):
         self.lib = ctypes.windll.LoadLibrary(NVDA_DLL_PATH)
         res = self.lib.nvdaController_testIfRunning()
         if res != 0:
             raise RuntimeError(f"NVDA does not appear to be running: {ctypes.WinError(res)}")
+        self.consecutive_failures = 0
 
     def speak(self, text):
+        """Returns True if NVDA accepted the request, False otherwise.
+        nvdaController_speakText/_cancelSpeech return an error_status_t but
+        ctypes never raises on a nonzero value - NVDA's own official example
+        code doesn't check it either - so without checking it ourselves, NVDA
+        restarting or the RPC channel dropping mid-session makes every future
+        speak() call a silent no-op forever: the poll loop keeps running,
+        screen recognition keeps working, nothing is ever raised for the
+        existing try/except to catch, and the user just gets total silence
+        with no distinguishing symptom. On failure this beeps (rate-limited,
+        not every poll) so there's an audible sign something is wrong, and
+        self-heals automatically the next time NVDA accepts a call again -
+        no restart needed."""
         self.lib.nvdaController_cancelSpeech()
-        self.lib.nvdaController_speakText(text)
+        res = self.lib.nvdaController_speakText(text)
+        if res == 0:
+            self.consecutive_failures = 0
+            return True
+        self.consecutive_failures += 1
+        print(f"NVDA speak failed (error {res}), consecutive failures={self.consecutive_failures}")
+        if self.consecutive_failures in (1, 10) or self.consecutive_failures % 60 == 0:
+            _audible_alert()
+        return False
+
+
+def wait_for_nvda(max_wait_seconds=60, retry_interval_seconds=2):
+    """NVDA can still be finishing its own startup (voice packs, add-ons)
+    when Steam launches the game near-instantly via launch options. A
+    one-shot check turns that ordinary timing race into "the reader crashes
+    before it ever starts, silently, for the whole session" - retry instead."""
+    deadline = time.monotonic() + max_wait_seconds
+    last_error = None
+    while time.monotonic() < deadline:
+        try:
+            return NvdaSpeaker()
+        except Exception as exc:
+            last_error = exc
+            print(f"NVDA not ready yet ({exc!r}), retrying...")
+            time.sleep(retry_interval_seconds)
+    print(f"Giving up waiting for NVDA after {max_wait_seconds}s: {last_error!r}")
+    _audible_alert()
+    time.sleep(0.2)
+    _audible_alert()
+    raise RuntimeError("NVDA never became available") from last_error
+
+
+def _pid_is_running(pid):
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return False
+    try:
+        STILL_ACTIVE = 259
+        exit_code = ctypes.c_ulong()
+        if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return False
+        return exit_code.value == STILL_ACTIVE
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
+
+
+def acquire_single_instance_lock():
+    """Prevent two readers from running at once and talking over each other
+    on NVDA. This is the sole source of truth for that now - independent of
+    start_reader.vbs's own pre-check, which used to query WMI for a matching
+    python.exe command line and treated any WMI failure as "assume nothing's
+    running" (silently reopening the exact duplicate-instance problem it was
+    meant to prevent, if WMI were ever persistently unavailable rather than
+    just transiently flaky). A PID lock file has no such dependency: a stale
+    lock (the PID it names is no longer alive, e.g. after a hard kill) is
+    detected and safely taken over."""
+    my_pid = os.getpid()
+    if os.path.exists(LOCK_FILE_PATH):
+        try:
+            with open(LOCK_FILE_PATH, "r", encoding="utf-8") as f:
+                existing_pid = int(f.read().strip())
+        except (ValueError, OSError):
+            existing_pid = None
+        if existing_pid is not None and existing_pid != my_pid and _pid_is_running(existing_pid):
+            return False
+    with open(LOCK_FILE_PATH, "w", encoding="utf-8") as f:
+        f.write(str(my_pid))
+    return True
+
+
+def release_single_instance_lock():
+    try:
+        if os.path.exists(LOCK_FILE_PATH):
+            with open(LOCK_FILE_PATH, "r", encoding="utf-8") as f:
+                if f.read().strip() == str(os.getpid()):
+                    os.remove(LOCK_FILE_PATH)
+    except OSError:
+        pass
 
 
 def was_key_pressed_since_last_check(vk):
@@ -305,172 +422,212 @@ def was_key_pressed_since_last_check(vk):
 
 def main():
     print("MK Legacy Kollection accessibility reader starting...")
-    speaker = NvdaSpeaker()
-    print("NVDA connection OK.")
 
-    library = ScreenLibrary()
-    print(f"Loaded {len(library.entries)} verified screens into the recognition library.")
+    if not acquire_single_instance_lock():
+        print("Another reader instance is already running; exiting.")
+        return
 
-    speaker.speak("Accessibility reader ready.")
+    try:
+        speaker = wait_for_nvda()
+        print("NVDA connection OK.")
 
-    hwnd = None
-    hwnd_ever_found = False
-    window_missing_since = None
+        library = ScreenLibrary()
+        print(f"Loaded {len(library.entries)} verified screens into the recognition library.")
 
-    # screen_key identifies "what's currently on screen" for change detection:
-    # ("lib", screen_id) when the library recognized it, ("ocr", tuple_of_lines)
-    # when falling back to live OCR. screen_payload is the text to actually speak.
-    last_spoken_screen_key = None
-    pending_screen_key = None
-    pending_screen_payload = None
-    pending_screen_ocr_texts = None
-    pending_screen_seen_count = 0
+        speaker.speak("Accessibility reader ready.")
 
-    last_spoken_highlight = None
-    pending_highlight = None
-    pending_highlight_seen_count = 0
+        hwnd = None
+        hwnd_ever_found = False
+        window_missing_since = None
+        consecutive_poll_failures = 0
 
-    def reset_tracking():
-        nonlocal last_spoken_screen_key, pending_screen_key, pending_screen_payload
-        nonlocal pending_screen_ocr_texts, pending_screen_seen_count
-        nonlocal last_spoken_highlight, pending_highlight, pending_highlight_seen_count
+        # screen_key identifies "what's currently on screen" for change detection:
+        # ("lib", screen_id) when the library recognized it, ("ocr", tuple_of_lines)
+        # when falling back to live OCR. screen_payload is the text to actually speak.
         last_spoken_screen_key = None
         pending_screen_key = None
-        pending_screen_payload = None
-        pending_screen_ocr_texts = None
         pending_screen_seen_count = 0
+        pending_screen_unstable_count = 0
+
         last_spoken_highlight = None
         pending_highlight = None
         pending_highlight_seen_count = 0
 
-    while True:
-        try:
-            if hwnd is None or not win32gui.IsWindow(hwnd):
-                hwnd = find_window_for_process(PROCESS_NAME)
-                if hwnd is None:
-                    if hwnd_ever_found:
-                        if window_missing_since is None:
-                            window_missing_since = time.monotonic()
-                        elif time.monotonic() - window_missing_since > EXIT_AFTER_WINDOW_GONE_SECONDS:
-                            print("Game window gone for a while; exiting.")
-                            return
-                    print("Waiting for game window...")
-                    time.sleep(2)
+        def reset_tracking():
+            nonlocal last_spoken_screen_key, pending_screen_key
+            nonlocal pending_screen_seen_count, pending_screen_unstable_count
+            nonlocal last_spoken_highlight, pending_highlight, pending_highlight_seen_count
+            last_spoken_screen_key = None
+            pending_screen_key = None
+            pending_screen_seen_count = 0
+            pending_screen_unstable_count = 0
+            last_spoken_highlight = None
+            pending_highlight = None
+            pending_highlight_seen_count = 0
+
+        while True:
+            try:
+                if hwnd is None or not win32gui.IsWindow(hwnd):
+                    hwnd = find_window_for_process(PROCESS_NAME)
+                    if hwnd is None:
+                        if hwnd_ever_found:
+                            if window_missing_since is None:
+                                window_missing_since = time.monotonic()
+                            elif time.monotonic() - window_missing_since > EXIT_AFTER_WINDOW_GONE_SECONDS:
+                                print("Game window gone for a while; exiting.")
+                                return
+                        print("Waiting for game window...")
+                        time.sleep(2)
+                        continue
+                    hwnd_ever_found = True
+                    window_missing_since = None
+                    print(f"Found game window: hwnd={hwnd}")
+                    speaker.speak("Game window found.")
+                    reset_tracking()
+
+                img = capture_window(hwnd)
+                if img is None:
+                    time.sleep(POLL_INTERVAL_SECONDS)
                     continue
-                hwnd_ever_found = True
-                window_missing_since = None
-                print(f"Found game window: hwnd={hwnd}")
-                speaker.speak("Game window found.")
-                reset_tracking()
 
-            img = capture_window(hwnd)
-            if img is None:
-                time.sleep(POLL_INTERVAL_SECONDS)
-                continue
+                force_reread = was_key_pressed_since_last_check(REREAD_HOTKEY_VK)
+                force_capture = was_key_pressed_since_last_check(CAPTURE_HOTKEY_VK)
 
-            force_reread = was_key_pressed_since_last_check(REREAD_HOTKEY_VK)
-            force_capture = was_key_pressed_since_last_check(CAPTURE_HOTKEY_VK)
-
-            if force_capture:
-                lines = asyncio.run(ocr_image(img))
-                highlighted_text = find_highlighted_text(img, lines)
-                name = save_known_screen(img, lines, highlighted_text)
-                print(f"Captured candidate library screen: {name}")
-                speaker.speak("Captured: " + name.replace("_", " ") + ". Needs review before it will be read automatically.")
-                time.sleep(POLL_INTERVAL_SECONDS)
-                continue
-
-            match_result = library.match(img)
-
-            if force_reread:
-                if match_result:
-                    entry, distance = match_result
-                    print(f"Manual re-read (F9): library match '{entry['screen_id']}' (distance={distance}).")
-                    highlighted_text = find_highlighted_text_from_entry(img, entry)
-                    to_speak = highlighted_text if highlighted_text else ". ".join(entry["canonical_text"])
-                    screen_key = ("lib", entry["screen_id"])
-                else:
+                if force_capture:
                     lines = asyncio.run(ocr_image(img))
-                    screen_texts = [l["text"] for l in lines]
                     highlighted_text = find_highlighted_text(img, lines)
-                    print("Manual re-read (F9): no library match, using live OCR.")
-                    to_speak = highlighted_text if highlighted_text else (". ".join(screen_texts) if screen_texts else "No text detected.")
-                    screen_key = ("ocr", tuple(screen_texts))
-                speaker.speak(to_speak)
-                last_spoken_screen_key = screen_key
-                pending_screen_key = None
-                pending_screen_seen_count = 0
-                last_spoken_highlight = highlighted_text
-                pending_highlight = None
-                pending_highlight_seen_count = 0
-                time.sleep(POLL_INTERVAL_SECONDS)
-                continue
+                    name = save_known_screen(img, lines, highlighted_text)
+                    print(f"Captured candidate library screen: {name}")
+                    speaker.speak("Captured: " + name.replace("_", " ") + ". Needs review before it will be read automatically.")
+                    time.sleep(POLL_INTERVAL_SECONDS)
+                    continue
 
-            # --- Determine what's on screen this poll, library-first ---
-            if match_result:
-                entry, distance = match_result
-                screen_key = ("lib", entry["screen_id"])
-                screen_payload = ". ".join(entry["canonical_text"])
-                screen_ocr_texts = None  # not applicable in library mode
-                highlighted_text = find_highlighted_text_from_entry(img, entry)
-            else:
-                lines = asyncio.run(ocr_image(img))
-                screen_texts = [l["text"] for l in lines]
-                screen_key = ("ocr", tuple(screen_texts))
-                screen_payload = ". ".join(screen_texts) if screen_texts else None
-                screen_ocr_texts = screen_texts
-                highlighted_text = find_highlighted_text(img, lines)
+                match_result = library.match(img)
 
-            # --- Screen-level change detection (e.g. main menu -> submenu) ---
-            if screen_key == last_spoken_screen_key:
-                pending_screen_key = None
-                pending_screen_seen_count = 0
-            elif screen_key == pending_screen_key:
-                pending_screen_seen_count += 1
-                if pending_screen_seen_count >= STABLE_POLLS_REQUIRED and screen_payload:
-                    print("Screen changed (stable):", screen_key)
-                    speaker.speak(screen_payload)
-                    if screen_key[0] == "ocr":
-                        log_library_miss(img, screen_ocr_texts)
+                if force_reread:
+                    if match_result:
+                        entry, distance = match_result
+                        print(f"Manual re-read (F9): library match '{entry['screen_id']}' (distance={distance}).")
+                        highlighted_text = find_highlighted_text_from_entry(img, entry)
+                        to_speak = highlighted_text if highlighted_text else ". ".join(entry["canonical_text"])
+                        screen_key = ("lib", entry["screen_id"])
+                    else:
+                        lines = asyncio.run(ocr_image(img))
+                        screen_texts = [l["text"] for l in lines]
+                        highlighted_text = find_highlighted_text(img, lines)
+                        print("Manual re-read (F9): no library match, using live OCR.")
+                        to_speak = highlighted_text if highlighted_text else (". ".join(screen_texts) if screen_texts else "No text detected.")
+                        screen_key = ("ocr", tuple(screen_texts))
+                    speaker.speak(to_speak)
                     last_spoken_screen_key = screen_key
                     pending_screen_key = None
                     pending_screen_seen_count = 0
-                    # The screen-read already covered whatever's highlighted on it.
+                    pending_screen_unstable_count = 0
                     last_spoken_highlight = highlighted_text
                     pending_highlight = None
                     pending_highlight_seen_count = 0
-            else:
-                pending_screen_key = screen_key
-                pending_screen_ocr_texts = screen_ocr_texts
-                pending_screen_seen_count = 1
+                    time.sleep(POLL_INTERVAL_SECONDS)
+                    continue
 
-            # --- Highlight-change detection (cursor moved within the same screen) ---
-            screen_just_changed = screen_key != last_spoken_screen_key
-            if not screen_just_changed:
-                if highlighted_text == last_spoken_highlight:
-                    pending_highlight = None
-                    pending_highlight_seen_count = 0
-                elif highlighted_text == pending_highlight:
-                    pending_highlight_seen_count += 1
-                    if pending_highlight_seen_count >= STABLE_POLLS_REQUIRED and highlighted_text:
-                        print("Highlight changed (stable):", highlighted_text)
-                        speaker.speak(highlighted_text)
+                # --- Determine what's on screen this poll, library-first ---
+                if match_result:
+                    entry, distance = match_result
+                    screen_key = ("lib", entry["screen_id"])
+                    screen_payload = ". ".join(entry["canonical_text"])
+                    screen_ocr_texts = None  # not applicable in library mode
+                    highlighted_text = find_highlighted_text_from_entry(img, entry)
+                else:
+                    lines = asyncio.run(ocr_image(img))
+                    screen_texts = [l["text"] for l in lines]
+                    screen_key = ("ocr", tuple(screen_texts))
+                    screen_payload = ". ".join(screen_texts) if screen_texts else None
+                    screen_ocr_texts = screen_texts
+                    highlighted_text = find_highlighted_text(img, lines)
+
+                # --- Screen-level change detection (e.g. main menu -> submenu) ---
+                if screen_key == last_spoken_screen_key:
+                    pending_screen_key = None
+                    pending_screen_seen_count = 0
+                    pending_screen_unstable_count = 0
+                else:
+                    pending_screen_unstable_count += 1
+                    if screen_key == pending_screen_key:
+                        pending_screen_seen_count += 1
+                    else:
+                        pending_screen_key = screen_key
+                        pending_screen_seen_count = 1
+
+                    stabilized = pending_screen_seen_count >= STABLE_POLLS_REQUIRED
+                    # Classic-game OCR can be noisy enough that two consecutive
+                    # polls of an uncatalogued screen never come back byte-for-byte
+                    # identical, so "stabilized" alone can wait forever and the
+                    # screen never gets announced at all. Once we've seen enough
+                    # consecutive "something's different" polls without it ever
+                    # settling, speak the latest OCR reading once as best-effort
+                    # rather than staying silent - library matches don't need this,
+                    # they're pre-verified text, not noisy live OCR.
+                    gave_up_waiting = (
+                        not stabilized
+                        and screen_key[0] == "ocr"
+                        and pending_screen_unstable_count >= FORCE_SPEAK_AFTER_UNSTABLE_POLLS
+                    )
+                    if (stabilized or gave_up_waiting) and screen_payload:
+                        print(
+                            "Screen changed (stable):" if stabilized
+                            else "Screen changed (best-effort, OCR never stabilized):",
+                            screen_key,
+                        )
+                        speaker.speak(screen_payload)
+                        if screen_key[0] == "ocr":
+                            log_library_miss(img, screen_ocr_texts)
+                        last_spoken_screen_key = screen_key
+                        pending_screen_key = None
+                        pending_screen_seen_count = 0
+                        pending_screen_unstable_count = 0
+                        # The screen-read already covered whatever's highlighted on it.
                         last_spoken_highlight = highlighted_text
                         pending_highlight = None
                         pending_highlight_seen_count = 0
-                else:
-                    pending_highlight = highlighted_text
-                    pending_highlight_seen_count = 1
 
-            time.sleep(POLL_INTERVAL_SECONDS)
-        except Exception as exc:
-            # A single bad poll (e.g. the game window died mid-capture)
-            # must never kill the whole reader - with no console attached
-            # in normal use, an uncaught exception here means NVDA just
-            # goes silent with no indication anything went wrong. Log it
-            # and keep polling instead.
-            print(f"Poll cycle failed, skipping and continuing: {exc!r}")
-            time.sleep(POLL_INTERVAL_SECONDS)
+                # --- Highlight-change detection (cursor moved within the same screen) ---
+                screen_just_changed = screen_key != last_spoken_screen_key
+                if not screen_just_changed:
+                    if highlighted_text == last_spoken_highlight:
+                        pending_highlight = None
+                        pending_highlight_seen_count = 0
+                    elif highlighted_text == pending_highlight:
+                        pending_highlight_seen_count += 1
+                        if pending_highlight_seen_count >= STABLE_POLLS_REQUIRED and highlighted_text:
+                            print("Highlight changed (stable):", highlighted_text)
+                            speaker.speak(highlighted_text)
+                            last_spoken_highlight = highlighted_text
+                            pending_highlight = None
+                            pending_highlight_seen_count = 0
+                    else:
+                        pending_highlight = highlighted_text
+                        pending_highlight_seen_count = 1
+
+                time.sleep(POLL_INTERVAL_SECONDS)
+            except Exception as exc:
+                # A single bad poll (e.g. the game window died mid-capture)
+                # must never kill the whole reader - with no console attached
+                # in normal use, an uncaught exception here means NVDA just
+                # goes silent with no indication anything went wrong. Log it
+                # and keep polling instead - but if failures never stop (not
+                # just the window being gone, handled separately above), give
+                # up and exit so a future relaunch's duplicate-instance check
+                # can start a fresh, healthy reader instead of this one
+                # retrying forever as a zombie that blocks it from doing so.
+                consecutive_poll_failures += 1
+                print(f"Poll cycle failed ({consecutive_poll_failures} in a row), skipping and continuing: {exc!r}")
+                if consecutive_poll_failures >= EXIT_AFTER_CONSECUTIVE_POLL_FAILURES:
+                    print("Too many consecutive poll failures; exiting so a relaunch can recover.")
+                    return
+                time.sleep(POLL_INTERVAL_SECONDS)
+            else:
+                consecutive_poll_failures = 0
+    finally:
+        release_single_instance_lock()
 
 
 if __name__ == "__main__":
