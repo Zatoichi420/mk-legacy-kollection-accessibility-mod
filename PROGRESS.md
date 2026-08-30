@@ -1,3 +1,9 @@
+> Standing cross-project accessibility rules (silent-error handling, lost
+> focus after actions, invisible selection state, prefer existing speech/
+> focus plumbing over new parallel paths) now live in
+> `C:\Users\vegas\Accessibility_Workflow.md` - check every new/changed
+> screen against that checklist, not just this file's own notes.
+
 # MK Legacy Kollection — Screen Reader Accessibility Project
 
 Goal: make the **launcher/front-end menus** of Mortal Kombat Legacy Kollection
@@ -1299,24 +1305,24 @@ addressed**: added `proxy_dll/README.md` and a warning comment on
 
 ### 6.4 Resume-here checklist (current)
 
-1. **Live-test everything from today's session together** - launch the
-   real game with NVDA running, confirm: normal screens still speak
+1. **Live-test everything from the 2026-08-19 session together** - launch
+   the real game with NVDA running, confirm: normal screens still speak
    correctly, F9/F10 still work, and ideally force a failure (e.g.
    temporarily close NVDA mid-session) to confirm the new beep-and-
    self-heal behavior actually fires and recovers once NVDA reopens.
-   Nothing above has touched a live game session - all six code fixes
-   were verified by direct unit/functional testing of the code in
-   isolation, not by running the actual capture/NVDA loop against the
-   game.
-2. Once confirmed, push the accumulated local commits (now more than the
-   2 that were already ahead of `origin/master`) to the private GitHub
-   repo.
-3. Everything still outstanding from §5.5's resume checklist remains
-   open, unchanged by today's session: complete the launcher main-menu
-   and quit-dialog entries (both known to be cut off), capture
-   Options/Extras/Credits and a second game's submenu, and do the
-   long-outstanding live captures for MK3, Trilogy, and Special Forces
-   (never done - see §4/§5 checklists).
-4. Optional, low-effort: install the "AI Content Describer" NVDA add-on
+   **Still not done**: the 6 code fixes were committed and pushed to
+   `origin/master` (commit `113140e`) the same day, and a log-tail watch
+   was set up ready to observe a live session, but the session ended
+   (user stepping away) before the game was actually launched - so this
+   is still purely verified by direct unit/functional testing of the
+   code in isolation, not by running the actual capture/NVDA loop
+   against the game. Truly next thing to do.
+2. Everything still outstanding from §5.5's resume checklist remains
+   open, unchanged: complete the launcher main-menu and quit-dialog
+   entries (both known to be cut off), capture Options/Extras/Credits
+   and a second game's submenu, and do the long-outstanding live
+   captures for MK3, Trilogy, and Special Forces (never done - see
+   §4/§5 checklists).
+3. Optional, low-effort: install the "AI Content Describer" NVDA add-on
    (6.1) as a standing manual fallback - no project code changes needed,
    just NVDA-side setup.
