@@ -1,0 +1,30 @@
+{
+  "screen_id": "launcher__mk1_game_library_submenu",
+  "game": "launcher",
+  "screen_type": "per_game_submenu",
+  "source": "live_capture",
+  "source_note": "Recovered from sequence/frame_000.png (identical across all 28 frames in that sequence - the cursor never moved off FATALITY TRAINING during that capture run), taken 2026-07-05 during highlight-color calibration - promoted into the library on 2026-07-06.",
+  "verified_against_live_game": true,
+  "capture_size": [1280, 720],
+  "canonical_text": [
+    "GAME LIBRARY",
+    "PLAY GAME",
+    "VERSUS",
+    "TRAINING",
+    "FATALITY TRAINING",
+    "CONTROLS",
+    "FLYERS"
+  ],
+  "notes": "Per-game submenu, reached from Game Library, for the 1992 arcade Mortal Kombat specifically (right-hand panel shows '1992 MORTAL...' plus a game-history blurb, cabinet art, and 'MIDWAY' branding). The right-panel description text is truncated by the 1280px capture width mid-sentence ('...tournament to d', '...arcade game's d', '...violent Fatality r') so it's deliberately left OUT of canonical_text rather than speak broken sentences - only the 6 fixed menu items + header are included. NOT YET VALIDATED: whether this same list template (PLAY GAME/VERSUS/TRAINING/FATALITY TRAINING/CONTROLS/FLYERS) is reused verbatim across every game's submenu - if so, whole-frame dHash matching still works because each game's right-panel art/text differs, but this hasn't been tested against a second game's submenu capture yet. If MK2/MK4/etc. submenus start getting misidentified as this MK1 entry, that's the first thing to check.",
+  "verified_by": "claude_vision",
+  "verified_at": "2026-07-06",
+  "ocr_lines_raw": [
+    {"text": "GAME LIBRARY", "bbox": [151.0, 56.0, 537.0, 102.0], "skip_highlight": true},
+    {"text": "PLAY GAME", "bbox": [164.0, 312.0, 311.0, 336.0]},
+    {"text": "VERSUS", "bbox": [186.0, 384.0, 288.0, 407.0]},
+    {"text": "TRAINING", "bbox": [177.0, 457.0, 297.0, 480.0]},
+    {"text": "FATALITY TRAINING", "bbox": [112.0, 529.0, 362.0, 552.0], "ocr_original": "FATALITY-TRAINING (stray hyphen from underline glow, cosmetic)"},
+    {"text": "CONTROLS", "bbox": [171.0, 601.0, 304.0, 624.0]},
+    {"text": "FLYERS", "bbox": [187.0, 673.0, 287.0, 696.0]}
+  ]
+}

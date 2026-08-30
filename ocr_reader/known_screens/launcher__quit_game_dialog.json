@@ -1,0 +1,25 @@
+{
+  "screen_id": "launcher__quit_game_dialog",
+  "game": "launcher",
+  "screen_type": "confirmation_dialog",
+  "source": "live_capture",
+  "source_note": "Recovered from enter_after.png, captured 2026-07-05 during the 'synthetic Enter key unexpectedly opened a Quit Game dialog' safety incident (see PROGRESS.md) - promoted into the library on 2026-07-06.",
+  "verified_against_live_game": true,
+  "capture_size": [1280, 720],
+  "roi": [560, 80, 1280, 650],
+  "roi_reason": "Excludes the dimmed main menu bleeding through on the left side of this overlay, which would otherwise tie this screen's hash to whatever background art the main menu happened to be showing underneath.",
+  "canonical_text": [
+    "QUIT GAME?",
+    "YOU'LL LOSE ANY UNSAVED PROGRESS IF YOU QUIT. ARE YOU SURE YOU'D LIKE TO QUIT RIGHT NOW?"
+  ],
+  "notes": "Confirmation dialog triggered by Enter/Start from the main menu (mapped to something like a pause/quit action rather than menu-confirm). This capture is cropped at the bottom edge (720px) before any YES/NO button text is visible - the dialog likely has confirm/cancel options below that aren't captured here yet. Needs a fresh F10 pass to confirm and add those. Escape was confirmed live to cancel back to the main menu.",
+  "verified_by": "claude_vision",
+  "verified_at": "2026-07-06",
+  "ocr_lines_raw": [
+    {"text": "QUIT GAME?", "bbox": [828.0, 203.0, 1181.0, 249.0], "bbox_estimated": true, "ocr_original": "GAME?", "skip_highlight": true},
+    {"text": "YOU'LL LOSE ANY UNSAVED", "bbox": [696.0, 399.0, 1176.0, 430.0], "skip_highlight": true},
+    {"text": "PROGRESS IF YOU QUIT. ARE", "bbox": [695.0, 452.0, 1181.0, 480.0], "skip_highlight": true},
+    {"text": "YOU SURE YOU'D LIKE TO QUIT", "bbox": [669.0, 499.0, 1205.0, 530.0], "skip_highlight": true},
+    {"text": "RIGHT NOW?", "bbox": [828.0, 552.0, 1048.0, 580.0], "skip_highlight": true}
+  ]
+}

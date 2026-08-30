@@ -1,0 +1,23 @@
+{
+  "screen_id": "mythologies__main_menu",
+  "game": "mythologies",
+  "screen_type": "main_menu",
+  "source": "web",
+  "source_url": "https://mortalkombat.fandom.com/wiki/File:Mk_myth.1.jpg",
+  "verified_against_live_game": false,
+  "capture_size": [339, 254],
+  "canonical_text": [
+    "MORTAL KOMBAT MYTHOLOGIES SUB-ZERO",
+    "START",
+    "OPTIONS",
+    "X - SELECT"
+  ],
+  "notes": "PS1 main menu: stylized logo (missed by OCR, confirmed by inspection), START and OPTIONS as the two menu entries, X - SELECT footer hint. Likely a highlight-capable list (START/OPTIONS) - untested live.",
+  "verified_by": "claude_vision",
+  "verified_at": "2026-07-06",
+  "ocr_lines_raw": [
+    {"text": "START", "bbox": [139.0, 159.0, 202.0, 171.0]},
+    {"text": "OPTIONS", "bbox": [128.0, 178.0, 212.0, 191.0]},
+    {"text": "X - SELECT", "bbox": [129.0, 208.0, 212.0, 217.0]}
+  ]
+}

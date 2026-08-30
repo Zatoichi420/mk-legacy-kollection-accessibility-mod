@@ -1,0 +1,17 @@
+{
+  "screen_id": "mk2__title",
+  "game": "mk2",
+  "screen_type": "title",
+  "source": "web",
+  "source_url": "https://mortalkombatcenter.fandom.com/wiki/File:Title1.png",
+  "verified_against_live_game": false,
+  "capture_size": [400, 254],
+  "canonical_text": [
+    "MORTAL KOMBAT II",
+    "COPYRIGHT 1992, 93 MIDWAY MANUFACTURING"
+  ],
+  "notes": "Title/logo screen with copyright line underneath. No 'press start' style prompt visible in this particular capture - may cycle to an attract-mode prompt on the live game that isn't in this still.",
+  "verified_by": "claude_vision",
+  "verified_at": "2026-07-06",
+  "ocr_lines_raw": []
+}

@@ -1,0 +1,19 @@
+{
+  "screen_id": "mk4__select_your_fighter",
+  "game": "mk4",
+  "screen_type": "character_select",
+  "source": "web",
+  "source_url": "https://mortalkombat.fandom.com/wiki/File:Selection_4.PNG",
+  "verified_against_live_game": false,
+  "capture_size": [400, 300],
+  "canonical_text": [
+    "SELECT YOUR FIGHTER",
+    "RANDOM",
+    "GROUP",
+    "HIDDEN"
+  ],
+  "notes": "Character select grid (15 portraits), portraits only - no printed fighter names on the grid. Footer options: RANDOM, GROUP, HIDDEN.",
+  "verified_by": "claude_vision",
+  "verified_at": "2026-07-06",
+  "ocr_lines_raw": []
+}

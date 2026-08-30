@@ -1,0 +1,22 @@
+{
+  "screen_id": "mk1__press_start",
+  "game": "mk1",
+  "screen_type": "title",
+  "source": "web",
+  "source_url": "https://mortalkombat.fandom.com/wiki/File:MK_title.png",
+  "verified_against_live_game": false,
+  "capture_size": [400, 254],
+  "canonical_text": [
+    "MORTAL KOMBAT",
+    "PRESS START"
+  ],
+  "notes": "Arcade title screen: MIDWAY banner, MORTAL KOMBAT logo, PRESS START prompt, copyright line at bottom. No highlightable list on this screen.",
+  "verified_by": "claude_vision",
+  "verified_at": "2026-07-06",
+  "ocr_lines_raw": [
+    {
+      "text": "PRESS START",
+      "bbox": [149.0, 218.0, 239.0, 229.0]
+    }
+  ]
+}
