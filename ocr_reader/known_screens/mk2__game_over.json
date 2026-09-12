@@ -1,0 +1,18 @@
+{
+  "screen_id": "mk2__game_over",
+  "game": "mk2",
+  "screen_type": "game_over",
+  "source": "live_capture",
+  "source_note": "Captured via F2 on 2026-09-12 after letting a continue countdown expire in arcade Mortal Kombat II.",
+  "verified_against_live_game": true,
+  "capture_size": [1280, 720],
+  "canonical_text": [
+    "GAME OVER"
+  ],
+  "notes": "Simple static end-of-game screen (purple sky, gargoyle statues, 'GAME OVER' text) - no menu items, just an end-state announcement.",
+  "verified_by": "claude_vision",
+  "verified_at": "2026-09-12",
+  "ocr_lines_raw": [
+    {"text": "GAME OVER", "bbox": [778.0, 414.0, 1190.0, 479.0], "skip_highlight": true}
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "screen_id": "mk2__choose_your_fighter",
+  "game": "mk2",
+  "screen_type": "character_select",
+  "source": "live_capture",
+  "source_note": "Captured via F2 on 2026-09-12 while playing arcade Mortal Kombat II.",
+  "verified_against_live_game": true,
+  "capture_size": [1280, 720],
+  "canonical_text": [
+    "CHOOSE YOUR FIGHTER"
+  ],
+  "notes": "Two-player character select grid, portraits only (no printed fighter names on the grid itself). Player 1 cursor shown as a green box (Liu Kang, selection index visible as a green '1' badge); a red box is visible at the right capture edge for Player 2. No 'CREDITS' line visible in this capture, unlike the MK1 reference entry - not included here since it wasn't actually on screen.",
+  "verified_by": "claude_vision",
+  "verified_at": "2026-09-12",
+  "ocr_lines_raw": [
+    {"text": "CHOOSE YOUR FIGHTER", "bbox": [720.0, 41.0, 1280.0, 108.0], "ocr_original": "OSBYOURF'GHT (OCR only caught a fragment of the truncated-at-frame-edge header)", "skip_highlight": true}
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "screen_id": "mk2__press_start_to_kontinue",
+  "game": "mk2",
+  "screen_type": "continue_prompt",
+  "source": "live_capture",
+  "source_note": "Captured via F2 on 2026-09-12 while playing arcade Mortal Kombat II.",
+  "verified_against_live_game": true,
+  "capture_size": [1280, 720],
+  "canonical_text": [
+    "PLAYER 1",
+    "PRESS START TO KONTINUE"
+  ],
+  "notes": "Continue-countdown screen: Player 1's panel (left, red text) reads 'PRESS START TO KONTINUE'; a Player 2 panel at the right capture edge reads something starting 'PRESS...JO...' (likely 'PRESS START TO JOIN', green text) but is cut off - left out of canonical_text. See mk2__prepare_for_next_kombat for the other state this same panel was seen in.",
+  "verified_by": "claude_vision",
+  "verified_at": "2026-09-12",
+  "ocr_lines_raw": [
+    {"text": "PLAYER 1", "bbox": [578.0, 382.0, 774.0, 418.0], "skip_highlight": true},
+    {"text": "PRESS START TO KONTINUE", "bbox": [446.0, 460.0, 907.0, 608.0], "skip_highlight": true}
+  ]
+}

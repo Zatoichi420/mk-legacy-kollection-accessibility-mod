@@ -1,0 +1,20 @@
+{
+  "screen_id": "mk2__prepare_for_next_kombat",
+  "game": "mk2",
+  "screen_type": "continue_prompt",
+  "source": "live_capture",
+  "source_note": "Captured via F2 on 2026-09-12 while playing arcade Mortal Kombat II, right after winning a match.",
+  "verified_against_live_game": true,
+  "capture_size": [1280, 720],
+  "canonical_text": [
+    "PLAYER 1",
+    "PREPARE FOR YOUR NEXT KOMBAT"
+  ],
+  "notes": "Post-match transition screen: Player 1's panel (left) reads 'PREPARE FOR YOUR NEXT KOMBAT'; a Player 2 panel is visible at the right capture edge but its text is cut off ('PRESS'/'...TO...KONT...' fragments only) - left out of canonical_text since it isn't fully legible. A later capture the same session (mk2__press_start_to_kontinue) shows the same Player 1 panel later reading 'PRESS START TO KONTINUE' instead - these are two different states of what appears to be the same continue/next-opponent sequence, not two views of one fixed screen.",
+  "verified_by": "claude_vision",
+  "verified_at": "2026-09-12",
+  "ocr_lines_raw": [
+    {"text": "PLAYER 1", "bbox": [578.0, 383.0, 774.0, 418.0], "ocr_original": "PLAYER I", "skip_highlight": true},
+    {"text": "PREPARE FOR YOUR NEXT KOMBAT", "bbox": [510.0, 458.0, 846.0, 696.0], "skip_highlight": true}
+  ]
+}
