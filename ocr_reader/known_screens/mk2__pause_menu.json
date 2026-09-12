@@ -1,0 +1,39 @@
+{
+  "screen_id": "mk2__pause_menu",
+  "game": "mk2",
+  "screen_type": "pause_menu",
+  "source": "live_capture",
+  "source_note": "Captured via F2 on 2026-09-12 while playing arcade Mortal Kombat II.",
+  "verified_against_live_game": true,
+  "capture_size": [1280, 720],
+  "canonical_text": [
+    "MORTAL KOMBAT II",
+    "RESUME",
+    "MOVES LIST",
+    "ON-SCREEN MOVE LIST: OFF",
+    "ADDITIONAL SETTINGS",
+    "SCREEN OPTIONS",
+    "CONTROLS",
+    "SAVE GAME",
+    "LOAD GAME",
+    "RESET GAME",
+    "QUIT GAME"
+  ],
+  "notes": "In-game pause menu (not the launcher's own quit dialog). QUIT GAME is the 11th, bottom-most item - visible and legible in the capture but sits right at the 720px bottom edge, so OCR never actually caught it (missing from ocr_lines_raw below); added to canonical_text anyway since it's clearly readable in the screenshot, unlike the mid-sentence truncations elsewhere in this library that get left out. OCR also misread 'MOVES LIST' as 'Mnws LIST' and 'ON-SCREEN' as 'DN-SCREEN' - corrected here, original OCR preserved per-line below.",
+  "verified_by": "claude_vision",
+  "verified_at": "2026-09-12",
+  "ocr_lines_raw": [
+    {"text": "MORTAL KOMBAT II", "bbox": [262.0, 72.0, 607.0, 110.0], "skip_highlight": true},
+    {"text": "RESUME", "bbox": [97.0, 208.0, 193.0, 229.0]},
+    {"text": "MOVES LIST", "bbox": [97.0, 261.0, 238.0, 281.0], "ocr_original": "Mnws LIST"},
+    {"text": "ON-SCREEN MOVE LIST", "bbox": [96.0, 314.0, 369.0, 335.0], "ocr_original": "DN-SCREEN MOVE LIST", "skip_highlight": true},
+    {"text": "OFF", "bbox": [689.0, 315.0, 734.0, 334.0], "skip_highlight": true},
+    {"text": "ADDITIONAL SETTINGS", "bbox": [97.0, 367.0, 364.0, 388.0]},
+    {"text": "SCREEN OPTIONS", "bbox": [97.0, 420.0, 303.0, 441.0], "ocr_original": "SCREEN OPTIONS,"},
+    {"text": "CONTROLS", "bbox": [97.0, 473.0, 221.0, 494.0]},
+    {"text": "SAVE GAME", "bbox": [97.0, 526.0, 232.0, 547.0]},
+    {"text": "LOAD GAME", "bbox": [97.0, 579.0, 233.0, 600.0]},
+    {"text": "RESET GAME", "bbox": [97.0, 632.0, 252.0, 653.0]},
+    {"text": "QUIT GAME", "bbox": [97.0, 685.0, 232.0, 706.0], "bbox_estimated": true}
+  ]
+}
