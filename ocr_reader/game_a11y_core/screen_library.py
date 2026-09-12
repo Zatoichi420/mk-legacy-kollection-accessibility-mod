@@ -15,17 +15,17 @@ cropped) may not agree on framing for the same on-screen content -
 if this shows up as matches that should hit but don't, cropping both to
 a consistent region before hashing is the first thing to try.
 
-**Confirmed instance of exactly that problem**: the launcher's own main
-menu renders a rotating/ambient background image behind the static
-PLAY/THE KRYPT/KOMBAT KARD text that has nothing to do with menu state -
-five captures of the identical menu, taken at different moments, hashed
-39-66 bits apart (out of 256) purely from background-art differences,
-versus 3-7 bits apart once cropped to the static left-hand text column.
-This is why entries can carry an optional "roi" ([x1,y1,x2,y2]) in their
-JSON: the hash (both stored and at match time) is computed only within
-that box. Omit it to hash the full frame - appropriate for the classic/
-PS1 emulated screens, which render one flat scene with no separate
-ambient layer.
+**Confirmed instance of exactly that problem**, from Legacy Kollection:
+the launcher's own main menu renders a rotating/ambient background image
+behind the static PLAY/THE KRYPT/KOMBAT KARD text that has nothing to do
+with menu state - five captures of the identical menu, taken at different
+moments, hashed 39-66 bits apart (out of 256) purely from background-art
+differences, versus 3-7 bits apart once cropped to the static left-hand
+text column. This is why entries can carry an optional "roi"
+([x1,y1,x2,y2]) in their JSON: the hash (both stored and at match time) is
+computed only within that box. Omit it to hash the full frame -
+appropriate for a screen that renders one flat scene with no separate
+ambient layer (e.g. the classic/PS1 emulated screens).
 """
 
 import json
@@ -33,8 +33,6 @@ import os
 
 import numpy as np
 from PIL import Image
-
-KNOWN_SCREENS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "known_screens")
 
 # dHash grid size: (HASH_SIZE+1) x HASH_SIZE pixels -> HASH_SIZE*HASH_SIZE bits.
 HASH_SIZE = 16
@@ -65,7 +63,11 @@ def hamming_distance(a: int, b: int) -> int:
 
 
 class ScreenLibrary:
-    def __init__(self, directory=KNOWN_SCREENS_DIR):
+    def __init__(self, directory):
+        """`directory` is required (each game's own known_screens/ path) -
+        this class used to default it to a path computed from its own
+        __file__, which broke the moment it became a shared module vendored
+        into more than one project's ocr_reader/ folder."""
         self.entries = []
         self._load(directory)
 
