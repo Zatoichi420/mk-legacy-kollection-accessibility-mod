@@ -3,8 +3,8 @@
 Start menu's "Check accessibility reader" shortcut.
 
 Reports through a standard Windows message box, which every screen reader
-reads out on its own. When NVDA isn't running, the summary is also spoken
-through the Windows voice first - a message box is silent with no screen
+reads out on its own. When neither NVDA nor JAWS is running, the summary is
+also spoken through the Windows voice first - a message box is silent with no screen
 reader at all, and "no speech" is exactly the problem this check exists to
 diagnose. --quiet skips both (the CI smoke test uses that plus
 --report-file).
@@ -73,7 +73,7 @@ def run_self_test(args, speaker):
     voice = speaker.active_backend_name()
     report["speech"] = voice
     if voice is None:
-        problems.append("No voice is available: NVDA isn't running and the Windows voice couldn't be started.")
+        problems.append("No voice is available: neither NVDA nor JAWS is running, and the Windows voice couldn't be started.")
 
     report["nvda_dll_present"] = os.path.isfile(app_paths.nvda_dll_path())
     if not report["nvda_dll_present"]:
@@ -125,7 +125,9 @@ def run_self_test(args, speaker):
             json.dump(report, f, indent=2)
 
     if not args.quiet:
-        if voice != "NVDA":
+        # NVDA and JAWS read the message box themselves; only a separate
+        # voice (or none) needs the summary spoken as well.
+        if voice not in ("NVDA", "JAWS"):
             speaker.speak(" ".join(lines[:-1]))
         flags = (MB_ICONWARNING if problems or warnings else MB_ICONINFORMATION) | MB_SETFOREGROUND | MB_TOPMOST
         ctypes.windll.user32.MessageBoxW(None, summary, "MK Legacy Kollection accessibility reader", flags)

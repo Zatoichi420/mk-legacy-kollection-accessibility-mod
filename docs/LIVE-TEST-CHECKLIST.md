@@ -57,8 +57,31 @@ log line confirms it, for when speech alone isn't conclusive.
 
 ## 4. Without NVDA
 
+- [ ] If the display scaling is not 100%, note it here. The reader now
+      captures each window at its own scaling, which fixed a stand-in game
+      window being cut to its top-left corner at 150%.
+
 - [ ] Quit NVDA (NVDA+Q) while the game is open: the next screen change is
       spoken in the Windows voice. Restart NVDA: speech moves back to NVDA.
+
+## 4b. JAWS (if a JAWS licence or 40-minute demo is available)
+
+- [ ] Quit NVDA and start JAWS. Start the game: "Game window found." is
+      spoken by JAWS, in the JAWS voice, with no Windows voice on top.
+      Log: `Speech output is now: JAWS`.
+- [ ] Move through the launcher menus: each item is spoken by JAWS.
+- [ ] Start menu, **Check accessibility reader**: says Voice JAWS. The result
+      is read once, by JAWS, not twice.
+- [ ] Quit JAWS while the game is open: speech moves to the Windows voice.
+      Start JAWS again: speech moves back to JAWS.
+- [ ] F9 and F10 still work with JAWS running.
+
+## 4c. Narrator
+
+- [ ] With NVDA and JAWS both closed, turn on Narrator (Ctrl+Windows+Enter).
+      Start the game: menus are spoken in the Windows voice. Note whether
+      Narrator and the Windows voice talking at once is a problem.
+- [ ] Turn Narrator off again (Ctrl+Windows+Enter).
 
 ## 5. Start, stop, restart
 

@@ -9,7 +9,12 @@ all. Speaker here instead checks, per utterance:
 
   1. NVDA, through the vendored NVDA Controller Client DLL, if NVDA is
      running right now.
-  2. Otherwise the built-in Windows voice (SAPI, via pywin32's COM support).
+  2. JAWS, through its own COM API (FreedomSci.JawsApi, which every JAWS
+     install registers), if JAWS is running right now. Added 2026-10-11:
+     without it a JAWS user heard the Windows voice talking over JAWS.
+  3. Otherwise the built-in Windows voice (SAPI, via pywin32's COM support).
+     This is also what Narrator users hear: Narrator has no public API that
+     another program can send text to.
 
 Checking every time (nvdaController_testIfRunning is a cheap local RPC call)
 means the reader follows NVDA being started, restarted or closed mid-session
@@ -30,7 +35,7 @@ try:
 except ImportError:  # non-Windows (only the tests' pure-logic parts run there)
     winsound = None
 
-MODES = ("auto", "nvda", "sapi", "none")
+MODES = ("auto", "nvda", "jaws", "sapi", "none")
 
 # SpeechVoiceSpeakFlags
 SVSF_ASYNC = 1
@@ -77,6 +82,63 @@ class NvdaBackend:
         pass  # NVDA speaks from its own process; nothing to wait for here
 
 
+# JAWS's main window class. Tolk and other screen-reader bridges use the
+# same check: it exists exactly while JAWS is running.
+JAWS_WINDOW_CLASS = "JFWUI2"
+JAWS_PROG_ID = "FreedomSci.JawsApi"
+
+
+def _jaws_window_present():
+    try:
+        return bool(ctypes.windll.user32.FindWindowW(JAWS_WINDOW_CLASS, None))
+    except Exception:
+        return False
+
+
+def _jaws_dispatch():
+    import win32com.client
+
+    return win32com.client.Dispatch(JAWS_PROG_ID)
+
+
+class JawsBackend:
+    name = "JAWS"
+
+    def __init__(self, is_running=_jaws_window_present, connect=_jaws_dispatch):
+        self._is_running = is_running
+        self._connect = connect
+        self.api = None
+        self._connect_logged = False
+
+    def available(self):
+        if not self._is_running():
+            # JAWS closed (or was never started): drop the stale COM object
+            # so a restarted JAWS gets a fresh connection.
+            self.api = None
+            return False
+        if self.api is None:
+            try:
+                self.api = self._connect()
+                self._connect_logged = False
+            except Exception as exc:
+                if not self._connect_logged:
+                    print(f"JAWS is running but its API couldn't be reached: {exc!r}")
+                    self._connect_logged = True
+                return False
+        return True
+
+    def speak(self, text, interrupt):
+        try:
+            # SayString(text, flush): flush=True cuts off what JAWS is saying.
+            return bool(self.api.SayString(text, bool(interrupt)))
+        except Exception:
+            self.api = None  # reconnect on the next utterance
+            raise
+
+    def wait_until_done(self, timeout_seconds):
+        pass  # JAWS speaks from its own process; nothing to wait for here
+
+
 class SapiBackend:
     name = "Windows voice"
 
@@ -106,11 +168,13 @@ class SapiBackend:
 
 
 class Speaker:
-    def __init__(self, nvda_dll_path, mode="auto", nvda_factory=NvdaBackend, sapi_factory=SapiBackend):
+    def __init__(self, nvda_dll_path, mode="auto", nvda_factory=NvdaBackend, sapi_factory=SapiBackend,
+                 jaws_factory=JawsBackend):
         if mode not in MODES:
             raise ValueError(f"speech mode must be one of {MODES}, not {mode!r}")
         self.mode = mode
         self._nvda = nvda_factory(nvda_dll_path) if mode in ("auto", "nvda") else None
+        self._jaws = jaws_factory() if mode in ("auto", "jaws") else None
         self._sapi_factory = sapi_factory if mode in ("auto", "sapi") else None
         self._sapi = None  # created on first need - most NVDA users never need it
         self.current = None
@@ -124,6 +188,8 @@ class Speaker:
     def _candidates(self):
         if self._nvda is not None:
             yield self._nvda
+        if self._jaws is not None:
+            yield self._jaws
         if self._sapi_factory is not None:
             yield self._sapi_backend()
 
@@ -165,6 +231,12 @@ class Speaker:
         if self.consecutive_failures in (1, 10) or self.consecutive_failures % 60 == 0:
             _audible_alert()
         return False
+
+    def using_screen_reader(self):
+        """True when speech is going through NVDA or JAWS rather than a
+        separate voice. The self-test uses this to avoid saying its result
+        twice: the screen reader already reads the message box."""
+        return self.current is not None and self.current.name in ("NVDA", "JAWS")
 
     def wait_until_done(self, timeout_seconds=10):
         if self.current is not None:

@@ -181,15 +181,15 @@ def parse_args(argv):
 
     parser = argparse.ArgumentParser(
         prog=PROG_NAME,
-        description="Speaks the menus of Mortal Kombat Legacy Kollection through NVDA, "
-        "or through the Windows voice when NVDA isn't running.",
+        description="Speaks the menus of Mortal Kombat Legacy Kollection through NVDA or JAWS, "
+        "or through the Windows voice when neither is running.",
     )
     action = parser.add_mutually_exclusive_group()
     action.add_argument("--stop", action="store_true", help="ask a running reader to shut down, and wait until it has")
     action.add_argument("--self-test", action="store_true", help="check speech, text recognition and the screen library, and report the result")
     parser.add_argument("--background", action="store_true", help="started automatically at sign-in: don't announce startup")
     parser.add_argument("--quiet", action="store_true", help="with --stop or --self-test: no speech or dialog, exit code only")
-    parser.add_argument("--speech", choices=MODES, default="auto", help="voice to use (default: auto = NVDA if running, else the Windows voice)")
+    parser.add_argument("--speech", choices=MODES, default="auto", help="voice to use (default: auto = NVDA or JAWS if running, else the Windows voice)")
     parser.add_argument("--dev", action="store_true", help="developer mode: F2 saves the current screen as a candidate library entry")
     parser.add_argument("--ignore-focus", action="store_true", help="read the game even when it isn't the focused window")
     parser.add_argument("--report-file", help="with --self-test: also write the results as JSON to this file")

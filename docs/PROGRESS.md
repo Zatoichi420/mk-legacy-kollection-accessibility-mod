@@ -1452,3 +1452,52 @@ functions are unchanged.
 
 The `mk-a11y-core` repo the core's docstring mentions isn't on GitHub.
 The MKX copy has to be synced by hand.
+- `speech.py` (2026-10-11 audit): `JawsBackend`, `jaws` speech mode, `Speaker.using_screen_reader()`
+- `capture.py` (2026-10-11 audit): `PrintWindowCapture` captures in the target window's own DPI awareness
+
+## 8. Audit on the user's PC (2026-10-11)
+
+Ran the installer branch on the user's own PC (Windows 11, 150% display
+scaling, NVDA running, JAWS not installed). The game itself wasn't
+available: its Steam library is on the external F: drive, which wasn't
+connected.
+
+### 8.1 Found and fixed
+
+- **Captures of a DPI-unaware window were cut to the top-left corner.**
+  The mirror image of the 7.1 scaling bug. Once the reader made itself
+  DPI-aware, a window that is *not* DPI-aware reports its scaled-up size
+  (1440x810 at 150% for a 960x540 window) while PrintWindow draws it at
+  its unscaled size. The picture filled the top-left two-thirds and the
+  rest was black, so no library screen matched. Reproduced with the CI's
+  own stand-in game (Tk windows are DPI-unaware): 3 of 22 end-to-end smoke
+  checks failed here, though they pass on CI's 100%-scaled runners.
+  `capture.py` now borrows the window's own DPI awareness for the capture,
+  which is correct in both directions and a no-op when they already
+  agree. Whether the real game is DPI-aware is still unknown (its exe is
+  on F:); the fix covers either case.
+- **JAWS users heard the Windows voice talking over JAWS.** Added a JAWS
+  voice through JAWS's own COM API (`FreedomSci.JawsApi`, `SayString`),
+  detected by JAWS's `JFWUI2` window, tried after NVDA and before the
+  Windows voice. It reconnects if JAWS restarts and drops a broken
+  connection. Also a `--speech jaws` mode, and the self-test no longer
+  speaks its result a second time when JAWS will read the message box.
+- Narrator has no API another program can speak through, so Narrator users
+  keep the Windows voice. The README now says so plainly.
+
+### 8.2 Verified here
+
+- 47/47 unit tests (38 before, plus 9 JAWS tests).
+- Built the program, Setup.exe and portable zip locally (Inno Setup 6.7.3,
+  installed per-user with no admin prompt).
+- Full smoke test against the built files at 150% scaling: 32/32 checks,
+  including silent install, start-at-sign-in and uninstall.
+- Live voices: auto mode picked NVDA and spoke; the Windows voice spoke;
+  JAWS mode correctly reported no JAWS.
+
+### 8.3 Still not verified
+
+- The real game (F: drive offline), so the whole of
+  `docs/LIVE-TEST-CHECKLIST.md` is still open.
+- A real JAWS install: the JAWS voice is unit-tested against a fake JAWS
+  API only. Checklist section 4b covers it.

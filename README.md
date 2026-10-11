@@ -1,6 +1,6 @@
 # MK Legacy Kollection Accessibility Reader
 
-Speaks the menus of **Mortal Kombat Legacy Kollection** (Windows, Steam) for blind and low-vision players. It reads each menu screen when it appears, and the highlighted item as you move through a menu, through NVDA, or through the Windows voice if NVDA isn't running.
+Speaks the menus of **Mortal Kombat Legacy Kollection** (Windows, Steam) for blind and low-vision players. It reads each menu screen when it appears, and the highlighted item as you move through a menu. It speaks through NVDA or JAWS, and through the Windows voice for Narrator users or when no screen reader is running.
 
 The game draws its menus as pictures, so screen readers can't see them on their own. This reader runs alongside the game, recognises the screen, and speaks it. It doesn't change the game or any of its files.
 
@@ -21,7 +21,12 @@ Not covered: the fights themselves, and fighter names on character select (the g
 
 - Windows 10 or 11, 64-bit.
 - Mortal Kombat Legacy Kollection.
-- **NVDA** is recommended. Without NVDA, the reader uses the Windows voice instead. JAWS and Narrator aren't supported directly, so with those you'll hear the Windows voice alongside your screen reader.
+- A screen reader is optional. How each one works with the reader:
+  - **NVDA**: the reader speaks through NVDA, in your NVDA voice and settings.
+  - **JAWS**: the reader speaks through JAWS, in your JAWS voice and settings.
+  - **Windows Narrator**: Narrator doesn't let other programs speak through it, so the reader uses the Windows voice. You'll hear two voices: Narrator for Windows itself, and the Windows voice for the game's menus.
+  - **No screen reader**: the reader uses the Windows voice.
+  - If NVDA or JAWS starts, stops or restarts while you play, the reader switches voice on its own. No restart is needed.
 - **Windows text recognition** (OCR), for screens the reader doesn't already know. It's normally installed along with English. If it's missing, the reader tells you; see [Troubleshooting](#troubleshooting).
 
 ## Install
@@ -60,7 +65,9 @@ Press the Windows key and type **accessibility reader** to find these:
 
 **Nothing is spoken at all.** Run **Check accessibility reader** from the Start menu. If it says the reader isn't running, run **Start accessibility reader**.
 
-**You hear a low beep instead of speech.** No voice was available: NVDA wasn't running, and the Windows voice couldn't be started either. Start NVDA. The reader switches to it automatically, with no restart needed.
+**You hear a low beep instead of speech.** No voice was available: neither NVDA nor JAWS was running, and the Windows voice couldn't be started either. Start NVDA or JAWS. The reader switches to it automatically, with no restart needed.
+
+**With JAWS, you hear the Windows voice instead of JAWS.** The reader couldn't connect to JAWS. Restart JAWS, then switch back to the game. If it keeps happening, please report it and include the log file, which says why the connection failed.
 
 **"Windows text recognition is not installed".** Known screens still work. To read the others, install English text recognition. Open **PowerShell as administrator** and run:
 
@@ -97,7 +104,7 @@ The program is `mk-legacy-access.exe` in the install folder. The Start menu entr
 - `--stop`: ask a running reader to stop, and wait until it has.
 - `--self-test`: run the check described above. Add `--quiet` for no dialog or speech, and `--report-file PATH` to save the results as JSON.
 - `--background`: don't announce startup. This is what start-at-sign-in uses.
-- `--speech auto|nvda|sapi|none`: choose the voice. The default, `auto`, uses NVDA if it's running and the Windows voice otherwise. `none` only writes speech to the log.
+- `--speech auto|nvda|jaws|sapi|none`: choose the voice. The default, `auto`, uses NVDA if it's running, then JAWS if it's running, and the Windows voice otherwise. `sapi` always uses the Windows voice. `none` only writes speech to the log.
 - `--ignore-focus`: keep reading even when the game isn't the focused window.
 - `--dev`: developer mode; see below.
 - `--version`.
