@@ -1,0 +1,77 @@
+# Live test checklist (before tagging a release)
+
+CI checks the built program against a stand-in game window, but it can't
+cover the real game, real speech, or 150% display scaling. Do this pass on
+the Windows PC with the real game before pushing a `v*` tag. It takes about
+15 minutes. Report anything that fails, including what you heard.
+
+The log is at `%LOCALAPPDATA%\MKLegacyKollectionAccess\reader.log` (press
+Windows+R, paste the folder path, press Enter). Each item below says which
+log line confirms it, for when speech alone isn't conclusive.
+
+## Before you start
+
+- [ ] Remove the old Steam launch option if it's still set: the game's
+      Properties, General, Launch Options, which held a line containing
+      `start_reader.vbs`. Leave the box empty. The installed reader replaces
+      it, and the old script no longer exists in the repo.
+- [ ] Close any old `python main.py` reader that's still running.
+
+## 1. Install
+
+- [ ] Download Setup.exe from the CI run's artifact or the draft release,
+      and run it. Note whether SmartScreen appears and whether the README's
+      steps got you past it.
+- [ ] The wizard reads sensibly with NVDA, and the start-at-sign-in checkbox
+      is announced as checked.
+- [ ] On Finish you hear "Accessibility reader ready. Waiting for the game."
+
+## 2. Check
+
+- [ ] Start menu, **Check accessibility reader**: NVDA reads the message box.
+      It should say Self-test passed, Voice NVDA, a text recognition
+      language, 18 known screens, Reader running, Start at sign-in on.
+
+## 3. The game, with NVDA (most important)
+
+- [ ] Start the game from Steam: you hear "Game window found."
+- [ ] Log: `Game capture size: 1920x1080` (**not** 1280x720). This confirms
+      the scaling fix. Note the size you actually got.
+- [ ] Main menu is read in full.
+- [ ] Play menu, Game Library, and the tabs (All/Arcade/Console): each
+      screen is read, and moving between tabs speaks the selected tab.
+- [ ] MK1 and MK2 game menus: screen read, and moving the cursor speaks each
+      item (Play Game, Versus, Training, ...).
+- [ ] Quit Game dialog (open it, then cancel).
+- [ ] MK2 arcade: Choose Your Fighter, pause menu. If you can, also the
+      continue screen and Prepare For Your Next Kombat. These two used to be
+      too similar; check each is read as itself.
+- [ ] A screen that isn't in the library (Options, Extras or Credits) gets a
+      best-effort read. It should now include text from the right side and
+      bottom of the screen that used to be cut off.
+- [ ] F9 re-reads. F10 says "Reader off.", F10 again says "Reader on."
+- [ ] Alt+Tab to another window: the reader goes quiet (log: `Game is not
+      the focused window`). Alt+Tab back: the current screen is read again.
+- [ ] Press F10 while in another app (Notepad, say): nothing happens, and it
+      doesn't toggle the reader later when you return to the game.
+
+## 4. Without NVDA
+
+- [ ] Quit NVDA (NVDA+Q) while the game is open: the next screen change is
+      spoken in the Windows voice. Restart NVDA: speech moves back to NVDA.
+
+## 5. Start, stop, restart
+
+- [ ] Quit the game. Log: `Game window closed`. The reader keeps running.
+      Start the game again: "Game window found." and reading resumes.
+- [ ] Start menu, **Stop accessibility reader**: "Accessibility reader
+      stopped."
+- [ ] **Start accessibility reader** twice: the second time says "The
+      accessibility reader is already running."
+- [ ] Sign out and back in, or restart Windows: no announcement at sign-in.
+      Start the game: "Game window found."
+
+## 6. Uninstall
+
+- [ ] Start menu, **Uninstall accessibility reader**: completes, and nothing
+      is spoken at the next sign-in.

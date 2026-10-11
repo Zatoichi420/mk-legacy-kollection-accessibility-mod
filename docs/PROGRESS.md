@@ -1,3 +1,23 @@
+> **Read this first (2026-10-11).** This is the project's running diary,
+> kept as written, so older entries describe things that have since
+> changed. Current state:
+> - The reader is now an installable Windows program (Setup.exe, see the
+>   README). `run_reader.bat`, `start_reader.vbs` and the Steam launch
+>   option described in §4 are gone. The installer's start-at-sign-in
+>   option replaces them.
+> - Hotkeys: **F2** captures a screen (and only with `--dev`), **F9**
+>   re-reads, and **F10** toggles the reader. Entries before 2026-09-12 that
+>   say F10 captures are out of date.
+> - The reader writes to `%LOCALAPPDATA%\MKLegacyKollectionAccess`, not
+>   `ocr_reader\`.
+> - **The capture cut-offs logged in §5.5 were one bug.** The reader wasn't
+>   DPI-aware, so at 150% scaling every capture was only the top-left
+>   1280x720 of the 1920x1080 frame. That's why the main menu "cut off after
+>   KOMBAT KARD", the quit dialog lacked its buttons, and so on. Fixed in
+>   `ocr_reader/frames.py`, which also explains how the existing library
+>   still matches.
+> - See §7 at the end for the 2026-10 packaging session.
+
 > Standing cross-project accessibility rules (silent-error handling, lost
 > focus after actions, invisible selection state, prefer existing speech/
 > focus plumbing over new parallel paths) now live in
@@ -1326,3 +1346,109 @@ addressed**: added `proxy_dll/README.md` and a warning comment on
 3. Optional, low-effort: install the "AI Content Describer" NVDA add-on
    (6.1) as a standing manual fallback - no project code changes needed,
    just NVDA-side setup.
+
+---
+
+## 7. Installable build (2026-10-11)
+
+Goal: turn the reader into something a player can install, with no Python,
+no batch files, and no hand-edited paths. Reviewed the whole repo, agreed
+a plan (Setup.exe; Windows-voice fallback; work on an `installer` branch
+and a pull request), and built it. Done from the Mac, so everything was
+verified on GitHub Actions' Windows runners, **not** against the real game.
+
+### 7.1 Bugs found along the way
+
+1. **The capture was only ever the top-left 2/3 of the screen.** The
+   reader process wasn't DPI-aware. At 150% scaling Windows reported the
+   game's client area as 1280x720, while PrintWindow drew the real
+   1920x1080 frame into that bitmap, so everything right of x=1280 or
+   below y=720 was dropped. Confirmed from the library's own screenshots:
+   on the MK2 continue screens the "MK II" logo (centred at x≈960 in a
+   1920-wide frame) and Player 2's panel are cut off at exactly the
+   1280/720 edges. This one bug explains every cut-off logged in §5.5
+   (main menu list, quit-dialog buttons, the submenu description). On
+   any other PC the framing would have differed again and the library
+   wouldn't have matched at all.
+   **Fix (`ocr_reader/frames.py`):** the process is made DPI-aware at
+   startup, and every capture is resized to 1920x1080. Library matching
+   uses the same top-left 1280x720 crop the library was captured with, so
+   all 18 existing entries still match. `tests/test_frames.py` checks this
+   at 960x540, 1280x720, 1600x900, 1920x1080, 2560x1440 and 3840x2160,
+   with distances of 8 or less. OCR, highlight detection on unrecognised
+   screens, and saved misses now use the whole screen.
+2. **Two library entries were confusable.** `mk2__press_start_to_kontinue`
+   and `mk2__prepare_for_next_kombat` were 20 bits apart with the match
+   threshold at 24, so a slightly different live frame of one could be
+   read as the other. Both now have an `roi` over Player 1's panel, which
+   puts them 78 bits apart. Caught by the new
+   `test_no_two_screens_are_confusable`, which now runs on every build.
+3. Silent failures closed: missing Windows OCR is now announced, with an
+   en-US engine fallback; NVDA not running now uses the Windows voice
+   instead of beeping and quitting; repeated poll errors are announced
+   before the reader exits.
+
+### 7.2 What changed
+
+- **Resident reader.** The installer adds an HKCU Run value
+  (`MKLegacyKollectionAccess`), so the reader starts at sign-in with
+  `--background`. It's silent until it finds the game, and it goes back to
+  waiting when the game closes. This replaces `start_reader.vbs` and the
+  Steam launch option; both are gone, and the launch option should be
+  removed on the dev PC.
+- **Focus gating.** Hotkeys and reading only act while the game is the
+  foreground window, matched by PID. Hotkey latches are read every poll so
+  a key pressed in another app can't fire later. Returning to the game
+  re-reads the screen. `--ignore-focus` turns this off.
+- **Single instance** via the named mutex `Local\MKLegacyKollectionAccess.Reader`.
+  **`--stop`** signals `Local\MKLegacyKollectionAccess.Stop` and waits for
+  the mutex to disappear. The installer runs it before upgrading and
+  uninstalling.
+- Data folder `%LOCALAPPDATA%\MKLegacyKollectionAccess`: `reader.log`
+  (timestamped, rotated at 2 MB, includes every `SPEAK:` line),
+  `library_misses/` (newest 50 kept), and `known_screens/` (`--dev` F2
+  captures when installed; the library also loads from here).
+- **`--self-test`** (Start menu: "Check accessibility reader") reports
+  through a standard message box, and speaks the summary first when NVDA
+  isn't running.
+- Packaging: PyInstaller one-dir windowed build, per-user Inno Setup
+  installer (no UAC prompt), portable zip, SHA256SUMS.
+  `.github/workflows/build.yml` runs the unit tests, builds, runs
+  `packaging/ci/smoke_test.py`, and publishes a release on `v*` tags that
+  match `ocr_reader/version.py`.
+- Repo: real README, LICENSE (MIT), NOTICE (including the NVDA client's
+  LGPL), CONTRIBUTING setup section, and this file moved to `docs/`. The
+  unused NVDA client files were removed (only the x64 DLL and its licence
+  are kept).
+
+### 7.3 Verified so far (CI, Windows runner)
+
+- 38 unit tests pass, 41 counting the 3 Windows-only ones.
+- Smoke test: 33/33 checks pass on the first CI run. That covers:
+  - the self-test, which loads all 18 screens and confirms each recognises itself
+  - background start, second instance refused, and `--stop`
+  - silent install with start-at-sign-in, then uninstall removing both
+  - **end to end**: a renamed `python.exe` posing as
+    `mk_legacy_kollection.exe` showed library screens at 960x540, and the
+    built reader found it by process name, recognised the main menu and MK2
+    Choose Your Fighter, spoke their verified text, noticed the window
+    closing, and kept running.
+
+### 7.4 Not verified, needs the real PC: `docs/LIVE-TEST-CHECKLIST.md`
+
+Real game, real NVDA and Windows voice, 150% scaling (expect `Game capture
+size: 1920x1080` in the log), focus gating with the real game window,
+SmartScreen, and sign-in autostart. Nothing has been tagged or released
+yet; tag `v1.0.0` only after that pass.
+
+### 7.5 Shared core (`game_a11y_core/`) changes to copy to the MKX mod
+
+All additive and backwards-compatible. `nvda_speaker.py` and the PID-lock
+functions are unchanged.
+- new `speech.py`
+- `ocr.py`: cached engine, en-US fallback, `get_ocr_engine()`, `ocr_language_tag()`
+- `lifecycle.py`: named mutex and stop event helpers, `foreground_process_id()`, `window_process_id()`
+- `screen_library.py`: `add_directory()`, and entries carry `png_path`
+
+The `mk-a11y-core` repo the core's docstring mentions isn't on GitHub.
+The MKX copy has to be synced by hand.
