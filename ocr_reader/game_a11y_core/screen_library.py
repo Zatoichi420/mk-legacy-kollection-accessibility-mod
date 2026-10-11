@@ -71,6 +71,12 @@ class ScreenLibrary:
         self.entries = []
         self._load(directory)
 
+    def add_directory(self, directory):
+        """Load a second known_screens/ folder on top of the first (the
+        installed reader adds the user's own folder, since its bundled one
+        is read-only). A missing folder is ignored, same as in __init__."""
+        self._load(directory)
+
     def _load(self, directory):
         if not os.path.isdir(directory):
             return
@@ -102,6 +108,7 @@ class ScreenLibrary:
                 continue
             self.entries.append({
                 "screen_id": data.get("screen_id", name[:-5]),
+                "png_path": png_path,
                 "canonical_text": canonical_text,
                 "notes": data.get("notes", ""),
                 "roi": roi,
