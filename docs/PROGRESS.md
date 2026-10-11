@@ -1423,7 +1423,7 @@ verified on GitHub Actions' Windows runners, **not** against the real game.
 
 ### 7.3 Verified so far (CI, Windows runner)
 
-- 38 unit tests pass, 41 counting the 3 Windows-only ones.
+- 38 unit tests pass on Windows (35 of them also run on macOS/Linux).
 - Smoke test: 33/33 checks pass on the first CI run. That covers:
   - the self-test, which loads all 18 screens and confirms each recognises itself
   - background start, second instance refused, and `--stop`
