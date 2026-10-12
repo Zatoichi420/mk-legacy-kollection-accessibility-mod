@@ -91,7 +91,8 @@
         1620,
         1000
       ],
-      "what": "selected game title and year"
+      "what": "selected game title and year",
+      "platform_icon": true
     }
   ]
 }

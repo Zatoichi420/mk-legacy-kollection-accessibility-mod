@@ -309,8 +309,6 @@ def read_screen_text(img):
     """Live OCR with clean_ocr_line applied to every line."""
     from game_a11y_core.ocr import ocr_image
 
-    import menu_ocr
-
     lines = asyncio.run(ocr_image(img))
     for line in lines:
         line["text"] = menu_ocr.snap(clean_ocr_line(line["text"]))
@@ -355,8 +353,6 @@ class Reader:
         self.reader_enabled = True
         self.consecutive_poll_failures = 0
         self.title_check_cache = {}
-        import menu_ocr
-
         menu_ocr.load_vocabulary(library)
         self.ocr_cache = None  # (frame dhash, monotonic time, lines)
         self.noisy_streak = 0
@@ -540,7 +536,6 @@ class Reader:
     def unknown_screen_lines(self, full):
         """OCR lines for a screen the library doesn't know, reusing the last
         OCR when only something small (the highlight) changed."""
-        import menu_ocr
         from game_a11y_core.screen_library import compute_dhash, hamming_distance
 
         frame_hash = compute_dhash(full)
@@ -557,8 +552,6 @@ class Reader:
     def announcement_for(self, screen_key, payload, highlighted, live):
         """What to say for a newly settled screen. Returns (text, reason);
         reason is None for the full screen."""
-        import menu_ocr
-
         def title_and_item(title):
             parts = [title] if title and title != highlighted else []
             if highlighted:
@@ -619,7 +612,13 @@ class Reader:
         for region in entry.get("live_regions") or ():
             lines = read_screen_text(full.crop(tuple(region["bbox"])))
             parts.extend(l["text"] for l in lines)
-        return ". ".join(parts) if parts else None
+            if lines and region.get("platform_icon"):
+                import platform_icons
+
+                platform = platform_icons.classify(full)
+                if platform:
+                    parts.append(platform)
+        return menu_ocr.join_texts(parts) if parts else None
 
     def entry_highlight(self, full, entry):
         """Which of a library entry's lines is highlighted, sampled on the
@@ -667,8 +666,6 @@ class Reader:
             self.pending_live = None
             self.pending_live_seen_count = 0
         else:
-            import menu_ocr
-
             lines = menu_ocr.read_menu_text(full, clean_ocr_line)
             self.ocr_cache = None
             screen_texts = [l["text"] for l in lines]
@@ -710,8 +707,6 @@ class Reader:
             if live:
                 screen_payload += ". " + live
         else:
-            import menu_ocr
-
             if self.noisy_streak >= 2:
                 # Looks like a fight: OCR only every few polls.
                 self.noisy_skip = (self.noisy_skip + 1) % NOISY_OCR_EVERY_N_POLLS
@@ -772,8 +767,6 @@ class Reader:
             )
             suppress = False
             if gave_up_waiting:
-                import menu_ocr
-
                 self.noisy_streak += 1
                 if self.noisy_streak > 1 or not menu_ocr.looks_like_text(screen_ocr_texts or ()):
                     suppress = True
