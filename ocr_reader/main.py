@@ -79,6 +79,7 @@ FORCE_SPEAK_AFTER_UNSTABLE_POLLS = 8
 # exit rather than retrying forever in silence.
 EXIT_AFTER_CONSECUTIVE_POLL_FAILURES = 240
 STOP_WAIT_SECONDS = 15
+REFOCUS_REREAD_AFTER_SECONDS = 5.0
 MAX_LIBRARY_MISSES_KEPT = 50
 LOG_ROTATE_BYTES = 2_000_000
 
@@ -245,6 +246,32 @@ def clean_ocr_line(text):
     return " ".join(tokens)
 
 
+def foreground_description():
+    """'process.exe: window title' of the foreground window, for the log."""
+    try:
+        import win32api
+        import win32gui
+        import win32process
+
+        hwnd = win32gui.GetForegroundWindow()
+        if not hwnd:
+            return "no foreground window"
+        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+        name = f"pid {pid}"
+        handle = None
+        try:
+            handle = win32api.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+            name = os.path.basename(win32process.GetModuleFileNameEx(handle, 0))
+        except Exception:
+            pass
+        finally:
+            if handle is not None:
+                win32api.CloseHandle(handle)
+        return f"{name}: {win32gui.GetWindowText(hwnd)!r}"
+    except Exception as exc:
+        return f"unknown ({exc!r})"
+
+
 def title_matches(expected, ocr_lines):
     """True if `expected` (e.g. "PLAY") is among the OCR'd title lines,
     comparing letters only and tolerating a little OCR noise (the stylised
@@ -307,6 +334,7 @@ class Reader:
         self.last_capture_size = None
         self.waiting_logged = False
         self.game_focused = True
+        self.unfocused_since = None
         self.reader_enabled = True
         self.consecutive_poll_failures = 0
         self.title_check_cache = {}
@@ -401,13 +429,22 @@ class Reader:
                 focused = True  # can't tell - fail towards reading, not silence
             if not focused:
                 if self.game_focused:
-                    print("Game is not the focused window; pausing until it is.")
+                    print(f"Game is not the focused window ({foreground_description()}); pausing until it is.")
                     self.game_focused = False
-                    self.reset_tracking()
+                    self.unfocused_since = time.monotonic()
                 return POLL_INTERVAL_SECONDS
             if not self.game_focused:
-                print("Game focused again; resuming.")
+                away = time.monotonic() - (self.unfocused_since or 0)
                 self.game_focused = True
+                # 2026-10-11 live test: with a controller, focus flickered
+                # away and back many times, and every return re-read the
+                # whole screen. Only a real absence (Alt+Tab and back)
+                # re-announces the screen now; a blip just carries on.
+                if away >= REFOCUS_REREAD_AFTER_SECONDS:
+                    print(f"Game focused again after {away:.1f}s; re-reading the screen.")
+                    self.reset_tracking()
+                else:
+                    print(f"Game focused again after {away:.1f}s; continuing.")
 
         if toggle_pressed:
             self.reader_enabled = not self.reader_enabled
