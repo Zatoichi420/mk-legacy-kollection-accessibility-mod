@@ -13,11 +13,32 @@ Thank you for your interest in contributing to this project! We welcome contribu
 
 ## Development Setup
 
-Please provide setup instructions here specific to your project:
-- Required dependencies
-- Environment configuration
-- How to test your changes locally
-- Build/compilation instructions (if applicable)
+You need Windows 10/11 64-bit and Python 3.12 (the Windows OCR bindings,
+`winsdk`, have no wheels for newer Pythons). Testing against the real game
+also needs Mortal Kombat Legacy Kollection and, ideally, NVDA.
+
+```
+py -3.12 -m pip install -r requirements.txt -r requirements-dev.txt
+py -3.12 -m pytest tests                 # unit tests (most also run on macOS/Linux)
+py -3.12 ocr_reader\main.py --dev        # run the reader from source, F2 captures screens
+py -3.12 packaging\build.py              # program + Setup.exe (needs Inno Setup 6) in dist\
+py -3.12 packaging\ci\smoke_test.py      # checks the built program and installer
+```
+
+The README's "For developers" section explains how to add a screen to the
+recognition library. Every new or changed screen entry needs hand-verified
+`canonical_text`; raw OCR is never spoken from the library. Run the tests
+afterwards: they fail if two screens are similar enough to be confused.
+
+Accessibility rules for any change that affects what's spoken: failures
+must be announced, never silent; every user action (hotkey, Start menu
+entry) must produce something audible; and a selection must be spoken as
+text, never left to colour alone.
+
+`docs/PROGRESS.md` is the project's full development history. Read it
+before reworking anything fundamental, because several obvious-looking
+approaches (hooking Dear ImGui, OCR-only reading) were tried and abandoned
+for documented reasons.
 
 ## Code of Conduct
 

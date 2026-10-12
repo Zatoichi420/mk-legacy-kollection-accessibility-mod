@@ -6,6 +6,8 @@
   "source_note": "Captured via F2 on 2026-09-12 while playing arcade Mortal Kombat II.",
   "verified_against_live_game": true,
   "capture_size": [1280, 720],
+  "roi": [400, 360, 940, 720],
+  "roi_reason": "Added 2026-10-11: hashed over the whole frame, mk2__press_start_to_kontinue and mk2__prepare_for_next_kombat were only 20 bits apart (match threshold 24) - the shared MK II backdrop dominated the hash, so a slightly different live frame of one could be read as the other. Cropped to Player 1's panel, where the two actually differ, they're 78 bits apart. Caught by tests/test_screen_library.py::test_no_two_screens_are_confusable.",
   "canonical_text": [
     "PLAYER 1",
     "PRESS START TO KONTINUE"
