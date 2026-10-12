@@ -83,3 +83,14 @@ def test_main_menu_highlight_is_found_below_the_library_view():
         bbox = next(l["bbox"] for l in entry["ocr_lines_raw"] if l["text"] == item)
         ImageDraw.Draw(full).rectangle(bbox, fill=(105, 200, 230))  # the game's cyan "selected" text
         assert main.Reader.entry_highlight(reader, full, entry) == item
+
+
+def test_clean_ocr_line_drops_highlight_ornaments_only():
+    from main import clean_ocr_line
+
+    assert clean_ocr_line("—4 ONLINE ARCADE") == "ONLINE ARCADE"
+    assert clean_ocr_line("ONLINE ARCADE —4") == "ONLINE ARCADE"
+    assert clean_ocr_line("1:36") == "1:36"
+    assert clean_ocr_line("16") == "16"
+    assert clean_ocr_line("HRS MINS") == "HRS MINS"
+    assert clean_ocr_line("MORTAL KOMBAT 3") == "MORTAL KOMBAT 3"

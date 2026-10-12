@@ -225,6 +225,36 @@ def load_library():
     return library
 
 
+def clean_ocr_line(text):
+    """Drop stray symbol tokens at either end of an OCR line. Added
+    2026-10-11 after a live test: the glowing ornament beside a highlighted
+    menu item OCRs as "—4" or similar, so "ONLINE ARCADE" became
+    "—4 ONLINE ARCADE" whenever it was highlighted - which changed the
+    screen's identity and re-read the whole screen on every cursor move.
+    Only tokens with a symbol and no letters are dropped, and only while
+    some lettered text remains, so "1:36" or "16" alone are kept."""
+    tokens = text.split()
+
+    def junk(token):
+        return not any(c.isalpha() for c in token) and any(not c.isalnum() for c in token)
+
+    while len(tokens) > 1 and junk(tokens[0]) and any(c.isalpha() for c in "".join(tokens[1:])):
+        tokens.pop(0)
+    while len(tokens) > 1 and junk(tokens[-1]) and any(c.isalpha() for c in "".join(tokens[:-1])):
+        tokens.pop()
+    return " ".join(tokens)
+
+
+def read_screen_text(img):
+    """Live OCR with clean_ocr_line applied to every line."""
+    from game_a11y_core.ocr import ocr_image
+
+    lines = asyncio.run(ocr_image(img))
+    for line in lines:
+        line["text"] = clean_ocr_line(line["text"])
+    return [line for line in lines if line["text"]]
+
+
 # --- The reader -------------------------------------------------------------
 
 class Reader:
@@ -435,7 +465,7 @@ class Reader:
             to_speak = highlighted_text if highlighted_text else ". ".join(entry["canonical_text"])
             screen_key = ("lib", entry["screen_id"])
         else:
-            lines = asyncio.run(ocr_image(full))
+            lines = read_screen_text(full)
             screen_texts = [l["text"] for l in lines]
             highlighted_text = find_highlighted_text(full, lines, self.calibration)
             print("Manual re-read (F9): no library match, using live OCR.")
@@ -470,7 +500,7 @@ class Reader:
             screen_ocr_texts = None  # not applicable in library mode
             highlighted_text = self.entry_highlight(full, entry)
         else:
-            lines = asyncio.run(ocr_image(full))
+            lines = read_screen_text(full)
             screen_texts = [l["text"] for l in lines]
             screen_key = ("ocr", tuple(screen_texts))
             screen_payload = ". ".join(screen_texts) if screen_texts else None
