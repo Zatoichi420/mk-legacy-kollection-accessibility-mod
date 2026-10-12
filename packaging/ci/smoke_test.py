@@ -184,6 +184,14 @@ def test_installer():
     check(value is not None and installed_exe.lower() in value.lower() and "--background" in value,
           f"start-at-sign-in entry points at the installed program ({value!r})")
 
+    # An upgrade must drop library entries the new version no longer ships.
+    stale = os.path.join(install_dir, "_internal", "known_screens", "retired__screen.json")
+    with open(stale, "w", encoding="utf-8") as f:
+        f.write("{}")
+    again = subprocess.run([setups[0], "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER",
+                            "/TASKS=autostart", f"/DIR={install_dir}"], timeout=300)
+    check(again.returncode == 0 and not os.path.exists(stale), "upgrade removes retired library entries")
+
     uninstallers = glob.glob(os.path.join(install_dir, "unins*.exe"))
     if not check(len(uninstallers) == 1, "uninstaller present"):
         return

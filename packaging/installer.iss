@@ -56,6 +56,14 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "autostart"; Description: "Start the reader automatically when I sign in to Windows (recommended). It stays quiet until the game is open."
 
+[InstallDelete]
+; An upgrade must not keep screen-library entries a newer version retired
+; (found 2026-10-12: two cut-off per-game menu entries survived an upgrade
+; and kept being read instead of the live menu). The bundle is rebuilt in
+; full on every install anyway.
+Type: filesandordirs; Name: "{app}\_internal\known_screens"
+Type: filesandordirs; Name: "{app}\_internal\platform_icons"
+
 [Files]
 Source: "..\dist\mk-legacy-access\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\dist\docs\README.html"; DestDir: "{app}"; Flags: ignoreversion
