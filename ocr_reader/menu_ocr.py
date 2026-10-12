@@ -90,7 +90,29 @@ def snap(text, vocabulary=None):
             best, best_ratio = phrase, ratio
     if best is not None and best_ratio >= SNAP_MIN_RATIO:
         return best
-    return text
+    return expand_fragment(text, vocabulary)
+
+
+def expand_fragment(text, vocabulary=None):
+    """A fragment that is part of exactly one known phrase becomes that
+    phrase ("VOLUME" -> "AUDIO VOLUME": the stylised "AUDIO" never OCRs).
+    Only for fragments of 5+ letters made of whole words, and only when
+    the phrase is unique - "DISPLAY" (DISPLAY MODE or MOVE LIST DISPLAY)
+    is left alone."""
+    vocabulary = _vocabulary if vocabulary is None else vocabulary
+    words = [w for w in text.upper().split() if w]
+    if not words or sum(len(w) for w in words) < 5 or not all(w.isalpha() for w in words):
+        return text
+    hits = []
+    for phrase in vocabulary or ():
+        pw = phrase.upper().replace(",", " ").split()
+        if len(pw) <= len(words):
+            continue
+        for i in range(len(pw) - len(words) + 1):
+            if pw[i:i + len(words)] == words:
+                hits.append(phrase)
+                break
+    return hits[0] if len(set(hits)) == 1 else text
 
 
 def binarize(img, threshold=BINARIZE_THRESHOLD):
@@ -145,13 +167,15 @@ def merge_passes(first, second, vocabulary=None):
         merged.append(dict(better, bbox=tuple(
             f(a, b) for f, a, b in zip((min, min, max, max), line["bbox"], other["bbox"]))))
     for i, other in enumerate(second):
-        if i not in used:
+        # A second-pass piece lying inside an already-kept line is that
+        # line split differently ("GAME" + "OPTIONS"), not new text.
+        if i not in used and not any(_overlap(other["bbox"], kept["bbox"]) > 0.5 for kept in merged):
             merged.append(other)
     return merged
 
 
 ROW_JOIN_GAP = 60          # px: pieces this close are one phrase split by OCR
-VALUE_JOIN_GAP = 450       # px: a short value this far right is the row's setting value
+VALUE_JOIN_GAP = 650       # px: a short value this far right is the row's setting value
 COLUMN_GAP = 220           # px between x-start clusters that makes a new column
 
 
@@ -227,11 +251,15 @@ def order_for_reading(lines):
 
 def _clean_footer(line):
     """Key-hint bar at the bottom: the key icons OCR as junk like '14' or
-    'Esc'. Keep only real words."""
+    'Esc'. Keep only real words, and the bar's own grouping."""
     if line["bbox"][1] < FOOTER_TOP:
         return line
-    words = [w for w in line["text"].replace(",", " ").split() if sum(c.isalpha() for c in w) >= 3]
-    return dict(line, text=", ".join(words)) if words else None
+    groups = []
+    for segment in line["text"].split(","):
+        words = [w for w in segment.split() if sum(c.isalpha() for c in w) >= 2]
+        if words:
+            groups.append(" ".join(words))
+    return dict(line, text=", ".join(groups)) if groups else None
 
 
 def read_menu_text(img, clean=None, vocabulary=None):
@@ -254,6 +282,7 @@ def read_menu_text(img, clean=None, vocabulary=None):
     lines = merge_passes(first, second, vocabulary)
     for line in lines:
         line["text"] = snap(line["text"], vocabulary)
+    lines = repair_lines(img, lines, vocabulary)
     vocab = set(vocabulary or ())
     lines = [l for l in lines if l["text"] in vocab or plausible_line(l["text"])]
     lines = merge_rows(lines)
@@ -371,7 +400,7 @@ def find_highlight(img, lines, calibration, vocabulary=None):
             pieces = [p for p in line.get("parts") or () if _line_highlighted(arr, p["bbox"], calibration)]
             if len(pieces) == 1 and len(line.get("parts") or ()) > 1 and not _value_row(line):
                 return pieces[0]["text"]
-            return line["text"]
+            return with_glowing_value(img, line, calibration, vocabulary)
         for piece in line.get("parts") or ():
             if _line_highlighted(arr, piece["bbox"], calibration):
                 return piece["text"]
@@ -477,11 +506,12 @@ def join_for_speech(lines):
             px1, py1, px2, py2 = prev["bbox"]
             x1, y1, x2, y2 = line["bbox"]
             height = max(py2 - py1, 1)
+            overlap = min(px2, x2) - max(px1, x1)
             continues = (
-                abs(x1 - px1) <= 25
+                overlap >= 0.5 * min(px2 - px1, x2 - x1)
                 and 0 <= y1 - py2 <= height * 0.9
                 and out[-1] not in ".?!:"
-                and (text[0].islower() or out[-1] == "," or len(prev["text"]) >= 35)
+                and abs((y2 - y1) - height) <= 0.3 * height
             )
             if continues:
                 out += " " + text
@@ -508,3 +538,102 @@ def join_texts(texts):
         else:
             out += ". " + text
     return out
+
+
+MAX_REPAIRS_PER_FRAME = 8
+
+
+def repair_lines(img, lines, vocabulary=None):
+    """Re-read lines that don't match any known phrase, one row at a time,
+    enlarged and black-on-white. A re-read that does match a known phrase
+    (and covers what was read) replaces the line. Cached per row image."""
+    from game_a11y_core.ocr import ocr_image
+
+    vocabulary = _vocabulary if vocabulary is None else vocabulary
+    vocab = set(vocabulary or ())
+    out = []
+    repairs = 0
+    for line in lines:
+        text = line["text"]
+        if text in vocab or repairs >= MAX_REPAIRS_PER_FRAME or sum(c.isalpha() for c in text) < 3:
+            out.append(line)
+            continue
+        x1, y1, x2, y2 = line["bbox"]
+        right = x2 + 260
+        for other in lines:
+            ox1, oy1, ox2, oy2 = other["bbox"]
+            if other is not line and ox1 > x2 and oy1 < y2 and oy2 > y1:
+                right = min(right, ox1 - 4)
+        box = (int(max(0, x1 - 10)), int(max(0, y1 - 8)), int(max(right, x2 + 4)), int(y2 + 8))
+        crop = img.crop(box)
+        key = (box, hash(crop.tobytes()))
+        if key in _repair_cache:
+            fixed = _repair_cache[key]
+        else:
+            repairs += 1
+            fixed = None
+            big = crop.resize((crop.width * 2, crop.height * 2), Image.LANCZOS)
+            for candidate in (binarize(big, 90), binarize(big, 110), big):
+                found = asyncio.run(ocr_image(ImageOps.expand(candidate, 30, fill=candidate.getpixel((0, 0)))))
+                for piece in found:
+                    snapped = snap(piece["text"], vocabulary)
+                    if snapped in vocab and _letters(text)[:3] in _letters(snapped):
+                        if fixed is None or len(snapped) > len(fixed):
+                            fixed = snapped
+                if fixed:
+                    break
+            if len(_repair_cache) > 256:
+                _repair_cache.clear()
+            _repair_cache[key] = fixed
+        out.append(dict(line, text=fixed) if fixed else line)
+    return out
+
+
+_repair_cache = {}
+
+
+def with_glowing_value(img, line, calibration, vocabulary=None):
+    """A highlighted setting row's value glows too and often doesn't OCR,
+    so "MENU MUSIC" came out without its "ON", and changing it said
+    nothing. Read any highlight-coloured text right of the row's label and
+    add it, unless the row already has a value."""
+    from game_a11y_core.ocr import ocr_image
+
+    parts = line.get("parts") or []
+    if len(parts) > 1 and not _value_row(line):
+        return line["text"]
+    # Always re-read the value of the highlighted row fresh - a remembered
+    # reading of the row would still say the old value after a change.
+    label = parts[0] if len(parts) > 1 else line
+    x1, y1, x2, y2 = label["bbox"]
+    band = (int(x2 + 40), int(max(0, y1 - 10)), int(min(img.width, x2 + VALUE_JOIN_GAP + 120)), int(y2 + 10))
+    if band[2] - band[0] < 20:
+        return line["text"]
+    crop = img.crop(band)
+    mask = _highlight_mask(crop, calibration)
+    cols = np.where(mask.sum(axis=0) > 0)[0]
+    if len(cols) < 6:
+        return line["text"]
+    vx1, vx2 = max(0, cols.min() - 8), min(crop.width, cols.max() + 9)
+    value_crop = crop.crop((vx1, 0, vx2, crop.height))
+    key = hash(value_crop.tobytes())
+    if key in _value_cache:
+        value = _value_cache[key]
+    else:
+        value = None
+        big = value_crop.resize((value_crop.width * 3, value_crop.height * 3), Image.LANCZOS)
+        glow = Image.fromarray((_highlight_mask(big, calibration) == 0).astype("uint8") * 255).convert("RGB")
+        for candidate in (binarize(big, 140), glow, big):
+            found = asyncio.run(ocr_image(ImageOps.expand(candidate, 30, fill=candidate.getpixel((0, 0)))))
+            text = " ".join(l["text"] for l in found).strip(" <>()[]|")
+            text = "".join(c for c in text if c.isalnum() or c in " -%:'.").strip()
+            if text and (plausible_line(text) or text.isdigit()):
+                value = snap_short(text, vocabulary)
+                break
+        if len(_value_cache) > 256:
+            _value_cache.clear()
+        _value_cache[key] = value
+    return f"{label['text']}, {value}" if value else line["text"]
+
+
+_value_cache = {}

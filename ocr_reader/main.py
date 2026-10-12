@@ -597,8 +597,18 @@ class Reader:
         missing now are added back."""
         from menu_ocr import _overlap, order_for_reading
 
+        from menu_ocr import _quality
+
         memory = getattr(self, "row_memory", None) or []
-        merged = [dict(l) for l in lines]
+        merged = []
+        for line in lines:
+            # Keep whichever reading of this row is better: the highlighted
+            # (glowing) version of a row usually OCRs worse than the plain one.
+            best = dict(line)
+            for old in memory:
+                if _overlap(old["bbox"], line["bbox"]) > 0.3 and _quality(old["text"], None) > _quality(line["text"], None):
+                    best = dict(old, bbox=line["bbox"])
+            merged.append(best)
         for old in memory:
             if not any(_overlap(old["bbox"], l["bbox"]) > 0.3 for l in lines):
                 merged.append(dict(old))
