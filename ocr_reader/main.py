@@ -572,6 +572,16 @@ class Reader:
                     title = entry["canonical_text"][0] if entry else None
                 return title_and_item(title), "a recently read screen: title and highlighted item"
         last = self.last_spoken_screen_key
+        if (screen_key[0] == "ocr" and last and last[0] == "ocr" and highlighted
+                and screen_key[1] and last[1] and screen_key[1][0] == last[1][0]
+                and len(set(last[1]) - set(screen_key[1])) >= 2):
+            # Same page title, so a list scrolled (the Krypt documentary
+            # keeps the highlighted chapter in one place and moves the rest):
+            # say the newly highlighted item and any new descriptive
+            # sentences, not every list item that scrolled into view.
+            previous = set(last[1])
+            sentences = [t for t in screen_key[1] if t not in previous and any(c.islower() for c in t)]
+            return menu_ocr.join_texts([highlighted] + sentences), "the newly highlighted item on a scrolled list"
         if screen_key[0] == "ocr" and last and last[0] == "ocr":
             previous = set(last[1])
             shared = [t for t in screen_key[1] if t in previous]
@@ -726,7 +736,7 @@ class Reader:
             # Identity ignores the key-hint bar at the bottom: it names the
             # highlighted item ("Enter: ADDITIONAL SETTINGS"), so it changes
             # with every cursor move.
-            body = tuple(l["text"] for l in lines if l["bbox"][1] < menu_ocr.FOOTER_TOP)
+            body = tuple(l["text"] for l in lines if not menu_ocr.is_hint(l["bbox"]))
             screen_key = ("ocr", body)
             # The same menu with the highlight moved can OCR a line or two
             # differently: keep treating it as the screen already spoken (or
@@ -736,9 +746,16 @@ class Reader:
             # in gets read half-drawn.
             same = False
             known = self.last_spoken_screen_key
+            pending = self.pending_screen_key
             if known and known[0] == "ocr" and menu_ocr.same_screen(known[1], body):
                 screen_key = known
                 same = True
+            elif pending and pending[0] == "ocr" and menu_ocr.same_screen(pending[1], body, menu_ocr.SETTLED_MIN_OVERLAP):
+                # Close enough to the pending reading to count as the same
+                # settled screen (text inside a playing video changes every
+                # poll), but stricter than above, so a panel still sliding
+                # in doesn't count as settled.
+                screen_key = pending
             # Row memory: the highlighted item's glowing text often doesn't
             # OCR at all, but it read fine a moment ago when it wasn't
             # highlighted. Fill rows missing from this reading from the
@@ -749,7 +766,20 @@ class Reader:
             else:
                 self.row_memory = [dict(l) for l in lines]
             screen_texts = [l["text"] for l in lines]
-            screen_payload = menu_ocr.join_for_speech(lines) if screen_texts else None
+            content = [l for l in lines if not menu_ocr.is_hint(l["bbox"])]
+            hints = menu_ocr.join_for_speech([l for l in lines if menu_ocr.is_hint(l["bbox"])])
+            last = self.last_spoken_screen_key
+            if (content and last and last[0] == "ocr" and last[1] and content[0]["text"] == last[1][0]
+                    and not same):
+                # Same page title as what was just read (moving between
+                # fighters on KOMBATANTS): don't repeat the title.
+                content = content[1:]
+            screen_payload = menu_ocr.join_for_speech(content) if screen_texts else None
+            # The key-hint bar is read when it first appears or changes,
+            # not again with every item.
+            if hints and hints != getattr(self, "last_hints", None):
+                screen_payload = menu_ocr.join_texts([screen_payload, hints]) if screen_payload else hints
+            self.pending_hints = hints
             screen_ocr_texts = screen_texts
             highlighted_text = menu_ocr.find_highlight(full, lines, self.calibration)
             live = None
@@ -799,6 +829,8 @@ class Reader:
                 if how:
                     print(f"  announcing {how}")
                 self.remember_screen(screen_key)
+                if screen_key[0] == "ocr":
+                    self.last_hints = getattr(self, "pending_hints", None)
                 # interrupt=False: let a still-playing announcement finish
                 # rather than chopping it mid-sentence.
                 self.speaker.speak(payload, interrupt=False)

@@ -29,6 +29,7 @@ screen), and looks_like_text() rejects readings that are mostly noise.
 import asyncio
 import difflib
 import os
+import re
 
 import numpy as np
 from PIL import Image, ImageOps
@@ -36,7 +37,18 @@ from PIL import Image, ImageOps
 BINARIZE_THRESHOLD = 110
 SNAP_MIN_RATIO = 0.8
 SAME_SCREEN_MIN_OVERLAP = 0.7
+SETTLED_MIN_OVERLAP = 0.85  # two readings of a NEW screen this alike = it has settled
 FOOTER_TOP = 990  # reference-frame y where the key-hint bar starts
+HEADER_HINT_BOTTOM = 120  # the launcher also puts key hints top right...
+HEADER_HINT_LEFT = 1300   # ...right of this x
+
+
+def is_hint(bbox):
+    """Is this text in one of the key-hint bars ("SELECT", "BACK")? They
+    name keys, not screen content: kept as their own row, read last, and
+    ignored when deciding whether the screen changed."""
+    x1, y1 = bbox[0], bbox[1]
+    return y1 >= FOOTER_TOP or (y1 < HEADER_HINT_BOTTOM and x1 >= HEADER_HINT_LEFT)
 
 _vocabulary = None
 
@@ -190,12 +202,38 @@ def _icon_junk(text):
     return len(letters) <= 1 and not any(c.isdigit() for c in letters)
 
 
+_BULLET_PREFIX = re.compile(r"^[0oO◇◆*] +(?=[A-Z][A-Z' &-]{2,}$)")
+
+
+def strip_bullet_prefix(text):
+    """"0 IMMORTALITY" -> "IMMORTALITY" (the diamond bullet read as part of
+    an all-caps list item)."""
+    return _BULLET_PREFIX.sub("", text)
+
+
+def _bullet(line, lines):
+    """A list bullet (the game's diamond) OCRs as a lone "0" or "o" just
+    left of the item it marks."""
+    if line["text"].strip() not in ("0", "o", "O", "◇", "◆", "*"):
+        return False
+    x1, y1, x2, y2 = line["bbox"]
+    mid = (y1 + y2) / 2
+    for other in lines:
+        if other is line:
+            continue
+        ox1, oy1, ox2, oy2 = other["bbox"]
+        if oy1 <= mid <= oy2 and 0 <= ox1 - x2 <= 45 and sum(c.isalpha() for c in other["text"]) >= 2:
+            return True
+    return False
+
+
 def merge_rows(lines):
     """Join pieces of text on the same row: a phrase OCR split in two, or a
     setting and its value ("ON-SCREEN MOVE LIST" ... "OFF"). Text in a
     separate column on the same row (the Moves List panel beside the pause
     menu) is not joined."""
     rows = []
+    lines = [l for l in lines if not _bullet(l, lines)]
     for line in sorted(lines, key=lambda l: (l["bbox"][0], l["bbox"][1])):
         if _icon_junk(line["text"]):
             continue
@@ -206,7 +244,10 @@ def merge_rows(lines):
             gap = x1 - rx2
             if not (ry1 <= mid <= ry2) or gap < -20:
                 continue
-            if gap <= ROW_JOIN_GAP or (gap <= VALUE_JOIN_GAP and _value_like(line["text"])):
+            if is_hint(line["bbox"]) != is_hint(row["bbox"]):
+                continue
+            similar_height = abs((y2 - y1) - (ry2 - ry1)) <= 0.35 * (ry2 - ry1)
+            if gap <= ROW_JOIN_GAP or (gap <= VALUE_JOIN_GAP and similar_height and _value_like(line["text"])):
                 row["parts"].append(line)
                 row["bbox"] = (min(rx1, x1), min(ry1, y1), max(rx2, x2), max(ry2, y2))
                 break
@@ -221,6 +262,7 @@ def merge_rows(lines):
             joined.append((" " if gap <= ROW_JOIN_GAP else ", ") + p["text"] if i else p["text"])
         out.append({"text": "".join(joined), "bbox": row["bbox"], "x": row["bbox"][0], "y": row["bbox"][1],
                     "parts": [{"text": p["text"], "bbox": p["bbox"]} for p in parts] if len(parts) > 1 else []})
+    out = [l for l in out if l["text"].strip() not in ("0", "o", "O")]  # lone list bullets
     return order_for_reading(out)
 
 
@@ -229,8 +271,8 @@ def order_for_reading(lines):
     columns of at least four lines each, like the Moves List beside the
     pause menu), column by column, left to right."""
     lines = sorted(lines, key=lambda l: (l["y"], l["x"]))
-    body = [l for l in lines if l["y"] < FOOTER_TOP]
-    footer = [l for l in lines if l["y"] >= FOOTER_TOP]
+    body = [l for l in lines if not is_hint(l["bbox"])]
+    footer = [l for l in lines if is_hint(l["bbox"])]
     starts = sorted({round(l["x"]) for l in body})
     columns = []
     for x in starts:
@@ -239,10 +281,10 @@ def order_for_reading(lines):
         else:
             columns.append([x])
     if len(columns) < 2:
-        return lines
+        return body + footer
     groups = [[l for l in body if col[0] <= round(l["x"]) <= col[-1]] for col in columns]
     if sum(len(g) >= 4 for g in groups) < 2:
-        return lines
+        return body + footer
     ordered = []
     for g in groups:
         ordered.extend(sorted(g, key=lambda l: l["y"]))
@@ -252,7 +294,7 @@ def order_for_reading(lines):
 def _clean_footer(line):
     """Key-hint bar at the bottom: the key icons OCR as junk like '14' or
     'Esc'. Keep only real words, and the bar's own grouping."""
-    if line["bbox"][1] < FOOTER_TOP:
+    if not is_hint(line["bbox"]):
         return line
     groups = []
     for segment in line["text"].split(","):
@@ -278,7 +320,11 @@ def read_menu_text(img, clean=None, vocabulary=None):
         return out
 
     first = prep(asyncio.run(ocr_image(img)))
+    for line in first:
+        line["text"] = strip_bullet_prefix(line["text"])
     second = prep(asyncio.run(ocr_image(binarize(img))))
+    for line in second:
+        line["text"] = strip_bullet_prefix(line["text"])
     lines = merge_passes(first, second, vocabulary)
     for line in lines:
         line["text"] = snap(line["text"], vocabulary)
@@ -314,14 +360,14 @@ def plausible_line(text):
     return numeric or (good * 10 >= 7 * len(words) and sum(c.isalpha() for c in text) >= 2)
 
 
-def same_screen(lines_a, lines_b):
+def same_screen(lines_a, lines_b, threshold=None):
     """True if two readings (tuples/lists of line texts) are most likely the
     same screen - e.g. the same menu with the highlight moved, which can
     change how one or two lines OCR."""
     a, b = set(lines_a), set(lines_b)
     if not a or not b:
         return False
-    return len(a & b) / max(len(a), len(b)) >= SAME_SCREEN_MIN_OVERLAP
+    return len(a & b) / max(len(a), len(b)) >= (SAME_SCREEN_MIN_OVERLAP if threshold is None else threshold)
 
 
 def looks_like_text(lines, vocabulary=None):
@@ -484,8 +530,12 @@ def drop_key_icons(text):
     words = text.replace(",", " ").split()
     if not any(w.upper() in KEY_HINT_WORDS for w in words):
         return text
-    kept = [w for w in words if not (w.isdigit() and len(w) <= 2)]
-    return ", ".join(kept) if kept != words else text
+    segments = []
+    for segment in text.split(","):
+        kept = [w for w in segment.split() if not (w.isdigit() and len(w) <= 2)]
+        if kept:
+            segments.append(" ".join(kept))
+    return ", ".join(segments)
 
 
 def join_for_speech(lines):
@@ -511,7 +561,7 @@ def join_for_speech(lines):
                 overlap >= 0.5 * min(px2 - px1, x2 - x1)
                 and 0 <= y1 - py2 <= height * 0.9
                 and out[-1] not in ".?!:"
-                and abs((y2 - y1) - height) <= 0.3 * height
+                and abs((y2 - y1) - height) <= 0.45 * height
             )
             if continues:
                 out += " " + text
@@ -533,7 +583,8 @@ def join_texts(texts):
             continue
         if not out:
             out = text
-        elif out[-1] in ".?!:":
+        elif out[-1] in ".?!:" or out[-1] == "," or text[0].islower():
+            # Sentence already ended, or this continues a wrapped sentence.
             out += " " + text
         else:
             out += ". " + text
@@ -555,7 +606,9 @@ def repair_lines(img, lines, vocabulary=None):
     repairs = 0
     for line in lines:
         text = line["text"]
-        if text in vocab or repairs >= MAX_REPAIRS_PER_FRAME or sum(c.isalpha() for c in text) < 3:
+        letters = [c for c in text if c.isalpha()]
+        label_like = len(text.split()) <= 4 and sum(c.isupper() for c in letters) >= 0.8 * max(len(letters), 1)
+        if text in vocab or not label_like or repairs >= MAX_REPAIRS_PER_FRAME or len(letters) < 3:
             out.append(line)
             continue
         x1, y1, x2, y2 = line["bbox"]
