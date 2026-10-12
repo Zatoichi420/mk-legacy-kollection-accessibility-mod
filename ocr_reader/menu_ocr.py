@@ -102,7 +102,27 @@ def snap(text, vocabulary=None):
             best, best_ratio = phrase, ratio
     if best is not None and best_ratio >= SNAP_MIN_RATIO:
         return best
-    return expand_fragment(text, vocabulary)
+    expanded = expand_fragment(text, vocabulary)
+    return expanded if expanded != text else snap_words(text, vocabulary)
+
+
+def snap_words(text, vocabulary=None):
+    """Word-level fallback for lines that mix known words with unknown
+    ones ("KOMBAT KARO - YEGASOJ": the player's name is unknown, but KARO is
+    KARD). Only all-caps words of 4+ letters, one letter off at most."""
+    vocabulary = _vocabulary if vocabulary is None else vocabulary
+    words = {w for phrase in vocabulary or () for w in phrase.replace(",", " ").split() if len(w) >= 4 and w.isalpha()}
+    out = []
+    changed = False
+    for word in text.split():
+        core = word.strip(".,:;!?")
+        if len(core) >= 4 and core.isalpha() and core.isupper() and core not in words:
+            close = [w for w in words if len(w) == len(core) and sum(a != b for a, b in zip(w, core)) == 1]
+            if len(close) == 1:
+                word = word.replace(core, close[0])
+                changed = True
+        out.append(word)
+    return " ".join(out) if changed else text
 
 
 def expand_fragment(text, vocabulary=None):
@@ -331,6 +351,7 @@ def read_menu_text(img, clean=None, vocabulary=None):
     lines = repair_lines(img, lines, vocabulary)
     vocab = set(vocabulary or ())
     lines = [l for l in lines if l["text"] in vocab or plausible_line(l["text"])]
+    lines = [l for l in lines if not dim_line(img, l["bbox"])]
     lines = merge_rows(lines)
     lines = [l for l in (_clean_footer(l) for l in lines) if l and l["text"]]
     return lines
@@ -367,7 +388,17 @@ def same_screen(lines_a, lines_b, threshold=None):
     a, b = set(lines_a), set(lines_b)
     if not a or not b:
         return False
-    return len(a & b) / max(len(a), len(b)) >= (SAME_SCREEN_MIN_OVERLAP if threshold is None else threshold)
+    threshold = SAME_SCREEN_MIN_OVERLAP if threshold is None else threshold
+    if len(a & b) / max(len(a), len(b)) >= threshold:
+        return True
+    # Pixel-font text that's still typing out (the arcade biographies) OCRs
+    # a little differently every time, so no line ever repeats exactly;
+    # compare the whole text instead. Only for long text: short menus must
+    # match line by line.
+    ja, jb = " ".join(lines_a), " ".join(lines_b)
+    if min(len(ja), len(jb)) < 60:
+        return False
+    return difflib.SequenceMatcher(None, ja, jb, autojunk=False).ratio() >= max(0.6, threshold - 0.1)
 
 
 def looks_like_text(lines, vocabulary=None):
@@ -607,7 +638,8 @@ def repair_lines(img, lines, vocabulary=None):
     for line in lines:
         text = line["text"]
         letters = [c for c in text if c.isalpha()]
-        label_like = len(text.split()) <= 4 and sum(c.isupper() for c in letters) >= 0.8 * max(len(letters), 1)
+        label_like = len(text.split()) <= 4 and (
+            sum(c.isupper() for c in letters) >= 0.8 * max(len(letters), 1) or len(text) <= 8)
         if text in vocab or not label_like or repairs >= MAX_REPAIRS_PER_FRAME or len(letters) < 3:
             out.append(line)
             continue
@@ -667,16 +699,49 @@ def with_glowing_value(img, line, calibration, vocabulary=None):
     cols = np.where(mask.sum(axis=0) > 0)[0]
     if len(cols) < 6:
         return line["text"]
-    vx1, vx2 = max(0, cols.min() - 8), min(crop.width, cols.max() + 9)
-    value_crop = crop.crop((vx1, 0, vx2, crop.height))
+    # The value may sit between glowing arrow ornaments ("<< TV >>"), which
+    # stop OCR reading it. Try the whole glowing span, then each piece of
+    # it on its own.
+    spans = [(cols.min(), cols.max())]
+    start = prev = cols[0]
+    pieces = []
+    for c in list(cols[1:]) + [None]:
+        if c is None or c - prev > 6:
+            if prev - start >= 10:
+                pieces.append((start, prev))
+            start = c
+        if c is not None:
+            prev = c
+    if len(pieces) > 1:
+        spans += sorted(pieces, key=lambda p: p[0] - p[1])  # widest first
+    for sx1, sx2 in spans:
+        value = _read_value(crop.crop((max(0, sx1 - 8), 0, min(crop.width, sx2 + 9), crop.height)), calibration, vocabulary)
+        if value:
+            return f"{label['text']}, {value}"
+    return line["text"]
+
+
+def _read_value(value_crop, calibration, vocabulary):
+    from game_a11y_core.ocr import ocr_image
+
     key = hash(value_crop.tobytes())
     if key in _value_cache:
         value = _value_cache[key]
     else:
         value = None
-        big = value_crop.resize((value_crop.width * 3, value_crop.height * 3), Image.LANCZOS)
-        glow = Image.fromarray((_highlight_mask(big, calibration) == 0).astype("uint8") * 255).convert("RGB")
-        for candidate in (binarize(big, 140), glow, big):
+
+        def candidates():
+            # Short glowing values ("TV") only OCR under some treatments;
+            # try a few, cheapest first. Cached per value image.
+            for scale in (3, 2):
+                big = value_crop.resize((value_crop.width * scale, value_crop.height * scale), Image.LANCZOS)
+                yield binarize(big, 140)
+                yield binarize(big, 180)
+                if scale == 3:
+                    yield Image.fromarray((_highlight_mask(big, calibration) == 0).astype("uint8") * 255).convert("RGB")
+                yield binarize(big, 200)
+
+        for candidate in candidates():
             found = asyncio.run(ocr_image(ImageOps.expand(candidate, 30, fill=candidate.getpixel((0, 0)))))
             text = " ".join(l["text"] for l in found).strip(" <>()[]|")
             text = "".join(c for c in text if c.isalnum() or c in " -%:'.").strip()
@@ -686,7 +751,58 @@ def with_glowing_value(img, line, calibration, vocabulary=None):
         if len(_value_cache) > 256:
             _value_cache.clear()
         _value_cache[key] = value
-    return f"{label['text']}, {value}" if value else line["text"]
+    return value
 
 
 _value_cache = {}
+
+
+DIM_TEXT_MAX_BRIGHTNESS = 330  # R+G+B of a line's brightest pixels
+
+
+def dim_line(img, bbox):
+    """Text that is only faintly bright: the dimmed game showing behind a
+    pause menu or dialog ("PUSH START" leaking into the pause menu's
+    reading). Real menu text, even grey values like "OFF", is far brighter."""
+    x1, y1, x2, y2 = (int(round(v)) for v in bbox)
+    crop = np.asarray(img.crop((x1, y1, max(x2, x1 + 1), max(y2, y1 + 1))).convert("RGB")).astype(np.int16)
+    if not crop.size:
+        return False
+    sums = crop.sum(axis=2).ravel()
+    return float(np.percentile(sums, 97)) < DIM_TEXT_MAX_BRIGHTNESS
+
+
+def reading_quality(texts, vocabulary=None):
+    """0..1: how much of a reading looks like real words. Pixel-font
+    attract screens and score tables come out as "LØNÆSI STQÉAKS cev 80000";
+    menus come out as words."""
+    vocabulary = _vocabulary if vocabulary is None else vocabulary
+    vocab_words = {w for p in vocabulary or () for w in p.upper().replace(",", " ").split()}
+    good = total = numbers = 0
+    for text in texts:
+        for word in text.replace(",", " ").split():
+            core = word.strip(".,:;!?'\"()-*")
+            if not core:
+                continue
+            total += 1
+            if core.replace(",", "").replace(":", "").isdigit():
+                numbers += 1
+                continue
+            if core.lower() in _SHORT_WORDS or core.upper() in vocab_words:
+                good += 1
+            elif core.isascii() and core.isalpha() and len(core) >= 3 and (core.isupper() or core.islower() or core.istitle())                     and any(c in "AEIOUYaeiouy" for c in core):
+                good += 1
+    if not total:
+        return 0.0
+    quality = good / total
+    if numbers / total >= 0.3:
+        quality = min(quality, 0.3)  # a score table, a timer, a HUD
+    words = [w.strip(".,:;!?'\"()-*").upper() for text in texts for w in text.replace(",", " ").split()]
+    words = [w for w in words if w]
+    if len(words) >= 8 and max(words.count(w) for w in set(words)) > 0.25 * len(words):
+        quality = min(quality, 0.3)  # one word over and over: a table ("WINS")
+    return quality
+
+
+_SHORT_WORDS = {"a", "i", "an", "of", "is", "to", "in", "on", "at", "by", "he", "it", "or", "as", "be", "we", "no",
+                "my", "me", "up", "so", "do", "go", "us", "am", "if", "vs", "ok"}

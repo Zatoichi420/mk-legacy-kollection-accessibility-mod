@@ -124,6 +124,10 @@ class ScreenLibrary:
                 # selected game in the Game Library carousel).
                 "title_check": data.get("title_check"),
                 "live_regions": data.get("live_regions", []),
+                # Optional (2026-10-11): a selection box that moves over a
+                # fixed grid with no printed names (arcade character
+                # select); see main.Reader.grid_selection.
+                "selection_grid": data.get("selection_grid"),
             })
 
     def match(self, frame: Image.Image, max_distance=MATCH_DISTANCE_THRESHOLD):

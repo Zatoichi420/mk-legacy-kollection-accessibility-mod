@@ -104,3 +104,39 @@ def test_title_matches_tolerates_ocr_noise_but_not_other_titles():
     assert title_matches("GAME LIBRARY", ["GAME LIBRARV"])
     assert not title_matches("PLAY", ["OPTIONS"])
     assert not title_matches("GAME LIBRARY", [])
+
+
+def test_reading_quality_separates_menus_from_noise():
+    import main
+    import menu_ocr
+
+    menu_ocr.load_vocabulary(main.load_library())
+    noise = [
+        ["WINNING", "Kl", "WINS OUY, WINS", "7", "WINS 7 WINS, 500000 WINS WINS", "100,000", "WINS, 80000"],
+        ["LØNÆSI, STREAKS", "OUY", "7", "SAN", "Tuc, WINS, 80000", "700000", "SOOOOO", "100000 gosooo"],
+        ["99"],
+        ["•OOIUiNS", "—oo ms—"],
+    ]
+    real = [
+        ["MORTAL KOMBAT II", "RESUME", "MOVES LIST", "ON-SCREEN MOVE LIST, OFF"],
+        ["KANO", "EXTORTIONIST THIEF KANO LIVES A LIFE OF CRIME AND INJUSTICE"],
+        ["Baraka is the leader of the Tarkatans, a nomadic race"],
+        ["KOMBAT KARD", "PLAYER STATS", "PLAYER NAME", "VEGASOJ", "TIME PLAYED", "1:36", "HRS", "FAVORITE REPLAYS", "16"],
+    ]
+    for texts in noise:
+        assert not main.same_as_spoken_quality(texts), texts
+    for texts in real:
+        assert main.same_as_spoken_quality(texts), texts
+
+
+def test_grid_selection_names_the_boxed_cell():
+    from PIL import Image, ImageDraw
+
+    import main
+
+    grid = {"color_min": [0, 151, 0], "color_max": [109, 255, 109], "ring": 10,
+            "cells": [{"name": "KANO", "bbox": [595, 178, 840, 526]}, {"name": "RAIDEN", "bbox": [600, 540, 835, 870]}]}
+    full = Image.new("RGB", (1920, 1080), (90, 90, 90))
+    assert main.grid_selection(full, grid) is None
+    ImageDraw.Draw(full).rectangle((594, 539, 836, 871), outline=(0, 200, 0), width=8)
+    assert main.grid_selection(full, grid) == "RAIDEN"

@@ -287,6 +287,43 @@ def foreground_description():
         return f"unknown ({exc!r})"
 
 
+def grid_selection(full, grid):
+    """Name of the grid cell the selection box surrounds, or None. Scores
+    each cell by how much of a thin ring around it is the box colour; the
+    box's cell scores far above the rest (live: 0.19-0.75 against 0.06 or
+    less), and nothing scores during a fight."""
+    import numpy as np
+
+    arr = np.asarray(full.convert("RGB")).astype(np.int16)
+    lo, hi = np.array(grid["color_min"]), np.array(grid["color_max"])
+    ring = int(grid.get("ring", 10))
+    scores = []
+    for cell in grid["cells"]:
+        x1, y1, x2, y2 = cell["bbox"]
+        sub = arr[max(0, y1 - ring):y2 + ring, max(0, x1 - ring):x2 + ring]
+        if not sub.size:
+            continue
+        match = np.all((sub >= lo) & (sub <= hi), axis=2)
+        inner = np.zeros(match.shape, dtype=bool)
+        inner[2 * ring:-2 * ring, 2 * ring:-2 * ring] = True
+        scores.append((float(match[~inner].mean()), cell["name"]))
+    if not scores:
+        return None
+    scores.sort(reverse=True)
+    best, name = scores[0]
+    runner_up = scores[1][0] if len(scores) > 1 else 0.0
+    return name if best >= 0.1 and best >= 2.5 * runner_up else None
+
+
+NOISE_QUALITY_MIN = 0.6
+
+
+def same_as_spoken_quality(texts):
+    """Is this unknown-screen reading worth speaking? Mostly-garbage
+    readings (attract-mode score tables, fight HUDs) aren't."""
+    return menu_ocr.reading_quality(texts or ()) >= NOISE_QUALITY_MIN
+
+
 def title_matches(expected, ocr_lines):
     """True if `expected` (e.g. "PLAY") is among the OCR'd title lines,
     comparing letters only and tolerating a little OCR noise (the stylised
@@ -649,6 +686,8 @@ class Reader:
         moving onto the main menu's OPTIONS or QUIT was never announced."""
         from game_a11y_core.highlight import find_highlighted_text_from_entry
 
+        if entry.get("selection_grid"):
+            return grid_selection(full, entry["selection_grid"])
         if tuple(entry.get("capture_size") or ()) == frames.LIBRARY_BOX[2:]:
             entry = dict(entry, capture_size=list(full.size))
         return find_highlighted_text_from_entry(full, entry, self.calibration)
@@ -806,6 +845,14 @@ class Reader:
                 and self.pending_screen_unstable_count >= FORCE_SPEAK_AFTER_UNSTABLE_POLLS
             )
             suppress = False
+            if screen_key[0] == "ocr" and (stabilized or gave_up_waiting) and not same_as_spoken_quality(screen_ocr_texts):
+                # Ignore it entirely: don't let a blank or junk frame between
+                # two screens count as a screen, or coming back to the same
+                # menu afterwards would read it all again.
+                print(f"Reading looks like noise (quality {menu_ocr.reading_quality(screen_ocr_texts or ()):.2f}); ignoring:", screen_key)
+                self.pending_screen_key = None
+                self.pending_screen_seen_count = 0
+                return
             if gave_up_waiting:
                 self.noisy_streak += 1
                 if self.noisy_streak > 1 or not menu_ocr.looks_like_text(screen_ocr_texts or ()):
