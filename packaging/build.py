@@ -76,6 +76,8 @@ def build_program() -> Path:
         "--specpath", ROOT / "build",
         "--paths", READER,
         "--add-data", f"{READER / 'known_screens'}{sep}known_screens",
+        "--add-data", f"{READER / 'vocabulary.txt'}{sep}.",
+        "--hidden-import", "menu_ocr",
         "--add-data", f"{NVDA_DIR / 'x64' / 'nvdaControllerClient.dll'}{sep}game_a11y_core/nvda_controller_client/x64",
         "--add-data", f"{NVDA_DIR / 'license.txt'}{sep}game_a11y_core/nvda_controller_client",
         # winsdk loads each WinRT namespace from one native module at import

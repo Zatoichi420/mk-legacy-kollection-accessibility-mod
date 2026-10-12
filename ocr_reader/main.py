@@ -57,6 +57,7 @@ import time
 
 import app_paths
 import frames
+import menu_ocr
 from version import __version__
 
 PROG_NAME = "mk-legacy-access"
@@ -66,7 +67,21 @@ STOP_EVENT_NAME = "Local\\MKLegacyKollectionAccess.Stop"
 # Must match the value name the installer writes (packaging/installer.iss).
 AUTOSTART_VALUE_NAME = "MKLegacyKollectionAccess"
 
-POLL_INTERVAL_SECONDS = 0.5
+POLL_INTERVAL_SECONDS = 0.3
+# Unknown screens: when the whole frame has barely changed since the last
+# OCR (typically just the highlight moving), reuse that OCR's lines and only
+# re-sample highlight colours - fast enough to keep up with a controller.
+# Still re-OCR at least this often, so a changed value (ON -> OFF) is caught.
+OCR_REUSE_MAX_HASH_DISTANCE = 10
+OCR_REUSE_MAX_AGE_SECONDS = 2.0
+# A screen that never stops changing (a fight, an attract animation) gets
+# one best-effort reading, then silence and slower OCR until something
+# steady appears again.
+NOISY_OCR_EVERY_N_POLLS = 5
+# Coming back to a screen read this recently (Back out of a submenu, or the
+# pause menu after its Moves List panel closes) announces just its title and
+# the highlighted item, not the whole screen again. F9 still reads it all.
+RECENT_SCREEN_SECONDS = 60.0
 WINDOW_SEARCH_INTERVAL_SECONDS = 2.0
 STABLE_POLLS_REQUIRED = 2  # OCR/highlight can be slightly noisy frame-to-frame; require it to settle before speaking
 # Classic-game OCR can be noisy enough to never repeat two polls in a row
@@ -294,9 +309,11 @@ def read_screen_text(img):
     """Live OCR with clean_ocr_line applied to every line."""
     from game_a11y_core.ocr import ocr_image
 
+    import menu_ocr
+
     lines = asyncio.run(ocr_image(img))
     for line in lines:
-        line["text"] = clean_ocr_line(line["text"])
+        line["text"] = menu_ocr.snap(clean_ocr_line(line["text"]))
     return [line for line in lines if line["text"]]
 
 
@@ -338,6 +355,12 @@ class Reader:
         self.reader_enabled = True
         self.consecutive_poll_failures = 0
         self.title_check_cache = {}
+        import menu_ocr
+
+        menu_ocr.load_vocabulary(library)
+        self.ocr_cache = None  # (frame dhash, monotonic time, lines)
+        self.noisy_streak = 0
+        self.noisy_skip = 0
         self.reset_tracking()
 
     def reset_tracking(self):
@@ -514,6 +537,82 @@ class Reader:
                 print(f"Title check failed for {entry['screen_id']}: read {[l['text'] for l in lines]!r}")
         return result if ok else None
 
+    def unknown_screen_lines(self, full):
+        """OCR lines for a screen the library doesn't know, reusing the last
+        OCR when only something small (the highlight) changed."""
+        import menu_ocr
+        from game_a11y_core.screen_library import compute_dhash, hamming_distance
+
+        frame_hash = compute_dhash(full)
+        now = time.monotonic()
+        if self.ocr_cache is not None:
+            cached_hash, cached_at, cached_lines = self.ocr_cache
+            if (hamming_distance(frame_hash, cached_hash) <= OCR_REUSE_MAX_HASH_DISTANCE
+                    and now - cached_at < OCR_REUSE_MAX_AGE_SECONDS):
+                return cached_lines, True
+        lines = menu_ocr.read_menu_text(full, clean_ocr_line)
+        self.ocr_cache = (frame_hash, now, lines)
+        return lines, False
+
+    def announcement_for(self, screen_key, payload, highlighted, live):
+        """What to say for a newly settled screen. Returns (text, reason);
+        reason is None for the full screen."""
+        import menu_ocr
+
+        def title_and_item(title):
+            parts = [title] if title and title != highlighted else []
+            if highlighted:
+                parts.append(highlighted)
+            if live:
+                parts.append(live)
+            return ". ".join(parts)
+
+        now = time.monotonic()
+        for key, seen_at in getattr(self, "recent_screens", []):
+            if now - seen_at > RECENT_SCREEN_SECONDS or key[0] != screen_key[0]:
+                continue
+            same = key == screen_key or (key[0] == "ocr" and menu_ocr.same_screen(key[1], screen_key[1]))
+            if same and highlighted:
+                title = screen_key[1][0] if screen_key[0] == "ocr" and screen_key[1] else None
+                if screen_key[0] == "lib":
+                    entry = next((e for e in self.library.entries if e["screen_id"] == screen_key[1]), None)
+                    title = entry["canonical_text"][0] if entry else None
+                return title_and_item(title), "a recently read screen: title and highlighted item"
+        last = self.last_spoken_screen_key
+        if screen_key[0] == "ocr" and last and last[0] == "ocr":
+            previous = set(last[1])
+            shared = [t for t in screen_key[1] if t in previous]
+            new = [t for t in screen_key[1] if t not in previous]
+            if len(shared) >= 3 and new:
+                parts = ([highlighted] if highlighted and highlighted not in new else []) + new
+                return menu_ocr.join_texts(parts), "only what changed from the previous screen"
+        # A full reading ends by saying where the cursor is, so the first
+        # thing heard on a new menu includes what Enter would choose.
+        if highlighted and highlighted != payload:
+            payload = f"{payload}. Selected: {highlighted}"
+        return payload, None
+
+    def remember_screen(self, screen_key):
+        now = time.monotonic()
+        recent = [(k, t) for k, t in getattr(self, "recent_screens", []) if now - t <= RECENT_SCREEN_SECONDS and k != screen_key]
+        recent.append((screen_key, now))
+        self.recent_screens = recent[-8:]
+
+    def remember_rows(self, lines):
+        """Merge this reading with the current screen's row memory: rows read
+        now replace what's remembered at the same position; remembered rows
+        missing now are added back."""
+        from menu_ocr import _overlap, order_for_reading
+
+        memory = getattr(self, "row_memory", None) or []
+        merged = [dict(l) for l in lines]
+        for old in memory:
+            if not any(_overlap(old["bbox"], l["bbox"]) > 0.3 for l in lines):
+                merged.append(dict(old))
+        merged = order_for_reading([dict(l, x=l["bbox"][0], y=l["bbox"][1]) for l in merged])
+        self.row_memory = [dict(l) for l in merged]
+        return merged
+
     def live_text(self, full, entry):
         """Text of an entry's live regions right now, or None."""
         parts = []
@@ -560,7 +659,7 @@ class Reader:
             print(f"Manual re-read (F9): library match '{entry['screen_id']}' (distance={distance}).")
             highlighted_text = self.entry_highlight(full, entry)
             live = self.live_text(full, entry)
-            to_speak = highlighted_text if highlighted_text else ". ".join(entry["canonical_text"])
+            to_speak = highlighted_text if highlighted_text else menu_ocr.join_texts(entry["canonical_text"])
             if live:
                 to_speak += ". " + live
             screen_key = ("lib", entry["screen_id"])
@@ -568,14 +667,17 @@ class Reader:
             self.pending_live = None
             self.pending_live_seen_count = 0
         else:
-            lines = read_screen_text(full)
+            import menu_ocr
+
+            lines = menu_ocr.read_menu_text(full, clean_ocr_line)
+            self.ocr_cache = None
             screen_texts = [l["text"] for l in lines]
-            highlighted_text = find_highlighted_text(full, lines, self.calibration)
+            highlighted_text = menu_ocr.find_highlight(full, lines, self.calibration)
             print("Manual re-read (F9): no library match, using live OCR.")
             if highlighted_text:
                 to_speak = highlighted_text
             elif screen_texts:
-                to_speak = ". ".join(screen_texts)
+                to_speak = menu_ocr.join_for_speech(lines)
             elif not self.ocr_available:
                 to_speak = "This screen isn't known, and text recognition is not installed."
             else:
@@ -598,20 +700,53 @@ class Reader:
         # --- Determine what's on screen this poll, library-first ---
         if match_result:
             entry, _distance = match_result
+            self.noisy_streak = 0
+            self.ocr_cache = None
             screen_key = ("lib", entry["screen_id"])
-            screen_payload = ". ".join(entry["canonical_text"])
+            screen_payload = menu_ocr.join_texts(entry["canonical_text"])
             screen_ocr_texts = None  # not applicable in library mode
             highlighted_text = self.entry_highlight(full, entry)
             live = self.live_text(full, entry) if entry.get("live_regions") else None
             if live:
                 screen_payload += ". " + live
         else:
-            lines = read_screen_text(full)
+            import menu_ocr
+
+            if self.noisy_streak >= 2:
+                # Looks like a fight: OCR only every few polls.
+                self.noisy_skip = (self.noisy_skip + 1) % NOISY_OCR_EVERY_N_POLLS
+                if self.noisy_skip:
+                    return
+            lines, reused = self.unknown_screen_lines(full)
+            # Identity ignores the key-hint bar at the bottom: it names the
+            # highlighted item ("Enter: ADDITIONAL SETTINGS"), so it changes
+            # with every cursor move.
+            body = tuple(l["text"] for l in lines if l["bbox"][1] < menu_ocr.FOOTER_TOP)
+            screen_key = ("ocr", body)
+            # The same menu with the highlight moved can OCR a line or two
+            # differently: keep treating it as the screen already spoken (or
+            # already pending), so the move is announced as just the item.
+            # Only against the screen already spoken: a NEW screen must read
+            # identically twice before it's spoken, or a panel still sliding
+            # in gets read half-drawn.
+            same = False
+            known = self.last_spoken_screen_key
+            if known and known[0] == "ocr" and menu_ocr.same_screen(known[1], body):
+                screen_key = known
+                same = True
+            # Row memory: the highlighted item's glowing text often doesn't
+            # OCR at all, but it read fine a moment ago when it wasn't
+            # highlighted. Fill rows missing from this reading from the
+            # screen's earlier readings, so the highlight check (colour, at
+            # the row's position) can still find and name it.
+            if same:
+                lines = self.remember_rows(lines)
+            else:
+                self.row_memory = [dict(l) for l in lines]
             screen_texts = [l["text"] for l in lines]
-            screen_key = ("ocr", tuple(screen_texts))
-            screen_payload = ". ".join(screen_texts) if screen_texts else None
+            screen_payload = menu_ocr.join_for_speech(lines) if screen_texts else None
             screen_ocr_texts = screen_texts
-            highlighted_text = find_highlighted_text(full, lines, self.calibration)
+            highlighted_text = menu_ocr.find_highlight(full, lines, self.calibration)
             live = None
 
         # --- Screen-level change detection (e.g. main menu -> submenu) ---
@@ -635,15 +770,35 @@ class Reader:
                 and screen_key[0] == "ocr"
                 and self.pending_screen_unstable_count >= FORCE_SPEAK_AFTER_UNSTABLE_POLLS
             )
-            if (stabilized or gave_up_waiting) and screen_payload:
+            suppress = False
+            if gave_up_waiting:
+                import menu_ocr
+
+                self.noisy_streak += 1
+                if self.noisy_streak > 1 or not menu_ocr.looks_like_text(screen_ocr_texts or ()):
+                    suppress = True
+            elif stabilized:
+                self.noisy_streak = 0
+            if suppress:
+                print("Screen keeps changing and reads as noise (a fight?); staying quiet:", screen_key)
+                self.last_spoken_screen_key = screen_key
+                self.pending_screen_key = None
+                self.pending_screen_seen_count = 0
+                self.pending_screen_unstable_count = 0
+                self.last_spoken_highlight = highlighted_text
+            elif (stabilized or gave_up_waiting) and screen_payload:
                 print(
                     "Screen changed (stable):" if stabilized
                     else "Screen changed (best-effort, OCR never stabilized):",
                     screen_key,
                 )
+                payload, how = self.announcement_for(screen_key, screen_payload, highlighted_text, live)
+                if how:
+                    print(f"  announcing {how}")
+                self.remember_screen(screen_key)
                 # interrupt=False: let a still-playing announcement finish
                 # rather than chopping it mid-sentence.
-                self.speaker.speak(screen_payload, interrupt=False)
+                self.speaker.speak(payload, interrupt=False)
                 if screen_key[0] == "ocr":
                     log_library_miss(full, screen_ocr_texts, self.misses_dir)
                     prune_library_misses(self.misses_dir)
