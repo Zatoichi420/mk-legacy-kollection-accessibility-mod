@@ -395,6 +395,19 @@ class Reader:
         self.track_screen(full, view, match_result)
         return POLL_INTERVAL_SECONDS
 
+    def entry_highlight(self, full, entry):
+        """Which of a library entry's lines is highlighted, sampled on the
+        FULL frame. Added 2026-10-11 after a live test: library bboxes are in
+        library-view coordinates, which are identical to full-frame ones
+        (the view is a crop at 0,0 with no scaling - see frames.py). Sampling
+        the cropped view instead made any item below y=720 invisible, so
+        moving onto the main menu's OPTIONS or QUIT was never announced."""
+        from game_a11y_core.highlight import find_highlighted_text_from_entry
+
+        if tuple(entry.get("capture_size") or ()) == frames.LIBRARY_BOX[2:]:
+            entry = dict(entry, capture_size=list(full.size))
+        return find_highlighted_text_from_entry(full, entry, self.calibration)
+
     def save_candidate_screen(self, full, view):
         from game_a11y_core.highlight import find_highlighted_text
         from game_a11y_core.ocr import ocr_image
@@ -418,7 +431,7 @@ class Reader:
         if match_result:
             entry, distance = match_result
             print(f"Manual re-read (F9): library match '{entry['screen_id']}' (distance={distance}).")
-            highlighted_text = find_highlighted_text_from_entry(view, entry, self.calibration)
+            highlighted_text = self.entry_highlight(full, entry)
             to_speak = highlighted_text if highlighted_text else ". ".join(entry["canonical_text"])
             screen_key = ("lib", entry["screen_id"])
         else:
@@ -455,7 +468,7 @@ class Reader:
             screen_key = ("lib", entry["screen_id"])
             screen_payload = ". ".join(entry["canonical_text"])
             screen_ocr_texts = None  # not applicable in library mode
-            highlighted_text = find_highlighted_text_from_entry(view, entry, self.calibration)
+            highlighted_text = self.entry_highlight(full, entry)
         else:
             lines = asyncio.run(ocr_image(full))
             screen_texts = [l["text"] for l in lines]

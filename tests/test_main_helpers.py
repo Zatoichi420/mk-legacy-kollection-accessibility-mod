@@ -56,3 +56,30 @@ def test_source_checkout_uses_one_library_folder():
 
 def test_nvda_dll_is_where_the_build_expects_it():
     assert os.path.isfile(app_paths.nvda_dll_path())
+
+
+def test_main_menu_highlight_is_found_below_the_library_view():
+    """Live test 2026-10-11: OPTIONS and QUIT sit below y=720, outside the
+    cropped library view, and highlighting them was never announced."""
+    import json
+    import os
+    import types
+
+    from PIL import Image, ImageDraw
+
+    import main
+
+    path = os.path.join(os.path.dirname(main.__file__), "known_screens", "launcher__main_menu.json")
+    with open(path, encoding="utf-8") as f:
+        entry = json.load(f)
+    assert entry["canonical_text"][-2:] == ["OPTIONS", "QUIT"]
+
+    from game_a11y_core.highlight import HighlightCalibration
+
+    calibration = HighlightCalibration(main.HIGHLIGHT_BRIGHTNESS_THRESHOLD, main.HIGHLIGHT_BLUE_MINUS_RED_THRESHOLD)
+    reader = types.SimpleNamespace(calibration=calibration)
+    for item in ("OPTIONS", "QUIT"):
+        full = Image.new("RGB", (1920, 1080))
+        bbox = next(l["bbox"] for l in entry["ocr_lines_raw"] if l["text"] == item)
+        ImageDraw.Draw(full).rectangle(bbox, fill=(105, 200, 230))  # the game's cyan "selected" text
+        assert main.Reader.entry_highlight(reader, full, entry) == item
