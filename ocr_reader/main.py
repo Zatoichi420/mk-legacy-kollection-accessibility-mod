@@ -245,6 +245,24 @@ def clean_ocr_line(text):
     return " ".join(tokens)
 
 
+def title_matches(expected, ocr_lines):
+    """True if `expected` (e.g. "PLAY") is among the OCR'd title lines,
+    comparing letters only and tolerating a little OCR noise (the stylised
+    title fonts lose or swap a letter now and then)."""
+    import difflib
+
+    def letters(text):
+        return "".join(c for c in text.upper() if c.isalpha())
+
+    want = letters(expected)
+    joined = letters(" ".join(ocr_lines))
+    if not want or not joined:
+        return False
+    if want in joined:
+        return True
+    return difflib.SequenceMatcher(None, want, joined).ratio() >= 0.75
+
+
 def read_screen_text(img):
     """Live OCR with clean_ocr_line applied to every line."""
     from game_a11y_core.ocr import ocr_image
@@ -291,6 +309,7 @@ class Reader:
         self.game_focused = True
         self.reader_enabled = True
         self.consecutive_poll_failures = 0
+        self.title_check_cache = {}
         self.reset_tracking()
 
     def reset_tracking(self):
@@ -304,6 +323,9 @@ class Reader:
         self.last_spoken_highlight = None
         self.pending_highlight = None
         self.pending_highlight_seen_count = 0
+        self.last_spoken_live = None
+        self.pending_live = None
+        self.pending_live_seen_count = 0
 
     def run(self):
         from game_a11y_core.lifecycle import wait_for_event
@@ -416,7 +438,7 @@ class Reader:
             self.save_candidate_screen(full, view)
             return POLL_INTERVAL_SECONDS
 
-        match_result = self.library.match(view)
+        match_result = self.verified_match(full, view)
 
         if reread_pressed:
             self.manual_reread(full, view, match_result)
@@ -424,6 +446,44 @@ class Reader:
 
         self.track_screen(full, view, match_result)
         return POLL_INTERVAL_SECONDS
+
+    def verified_match(self, full, view):
+        """library.match(), plus a title check for entries that carry one.
+        Added 2026-10-11: menus are now hashed on their fixed title area only
+        (the moving highlight kept pushing whole-menu hashes past the match
+        threshold, so the Play menu flipped between its library text and
+        noisy OCR on every cursor move). A small hashed area is easier to
+        confuse with a look-alike menu, so the title is also read by OCR and
+        must match before the entry's text is trusted. The result is cached
+        per hash value, so the OCR runs once per screen, not every poll."""
+        from game_a11y_core.screen_library import compute_dhash
+
+        result = self.library.match(view)
+        if not result:
+            return None
+        entry = result[0]
+        check = entry.get("title_check")
+        if not check:
+            return result
+        key = (entry["screen_id"], compute_dhash(view, entry.get("roi")))
+        ok = self.title_check_cache.get(key)
+        if ok is None:
+            lines = read_screen_text(full.crop(tuple(check["bbox"])))
+            ok = title_matches(check["text"], [l["text"] for l in lines])
+            if len(self.title_check_cache) > 256:
+                self.title_check_cache.clear()
+            self.title_check_cache[key] = ok
+            if not ok:
+                print(f"Title check failed for {entry['screen_id']}: read {[l['text'] for l in lines]!r}")
+        return result if ok else None
+
+    def live_text(self, full, entry):
+        """Text of an entry's live regions right now, or None."""
+        parts = []
+        for region in entry.get("live_regions") or ():
+            lines = read_screen_text(full.crop(tuple(region["bbox"])))
+            parts.extend(l["text"] for l in lines)
+        return ". ".join(parts) if parts else None
 
     def entry_highlight(self, full, entry):
         """Which of a library entry's lines is highlighted, sampled on the
@@ -462,8 +522,14 @@ class Reader:
             entry, distance = match_result
             print(f"Manual re-read (F9): library match '{entry['screen_id']}' (distance={distance}).")
             highlighted_text = self.entry_highlight(full, entry)
+            live = self.live_text(full, entry)
             to_speak = highlighted_text if highlighted_text else ". ".join(entry["canonical_text"])
+            if live:
+                to_speak += ". " + live
             screen_key = ("lib", entry["screen_id"])
+            self.last_spoken_live = live
+            self.pending_live = None
+            self.pending_live_seen_count = 0
         else:
             lines = read_screen_text(full)
             screen_texts = [l["text"] for l in lines]
@@ -499,6 +565,9 @@ class Reader:
             screen_payload = ". ".join(entry["canonical_text"])
             screen_ocr_texts = None  # not applicable in library mode
             highlighted_text = self.entry_highlight(full, entry)
+            live = self.live_text(full, entry) if entry.get("live_regions") else None
+            if live:
+                screen_payload += ". " + live
         else:
             lines = read_screen_text(full)
             screen_texts = [l["text"] for l in lines]
@@ -506,6 +575,7 @@ class Reader:
             screen_payload = ". ".join(screen_texts) if screen_texts else None
             screen_ocr_texts = screen_texts
             highlighted_text = find_highlighted_text(full, lines, self.calibration)
+            live = None
 
         # --- Screen-level change detection (e.g. main menu -> submenu) ---
         if screen_key == self.last_spoken_screen_key:
@@ -548,8 +618,12 @@ class Reader:
                 self.last_spoken_highlight = highlighted_text
                 self.pending_highlight = None
                 self.pending_highlight_seen_count = 0
+                self.last_spoken_live = live
+                self.pending_live = None
+                self.pending_live_seen_count = 0
 
         # --- Highlight-change detection (cursor moved within the same screen) ---
+        spoke_highlight = False
         if screen_key == self.last_spoken_screen_key:
             if highlighted_text == self.last_spoken_highlight:
                 self.pending_highlight = None
@@ -559,12 +633,33 @@ class Reader:
                 if self.pending_highlight_seen_count >= STABLE_POLLS_REQUIRED and highlighted_text:
                     print("Highlight changed (stable):", highlighted_text)
                     self.speaker.speak(highlighted_text)
+                    spoke_highlight = True
                     self.last_spoken_highlight = highlighted_text
                     self.pending_highlight = None
                     self.pending_highlight_seen_count = 0
             else:
                 self.pending_highlight = highlighted_text
                 self.pending_highlight_seen_count = 1
+
+        # --- Live-region change detection (e.g. the Game Library's selected
+        # game). Same two-poll stability rule; an empty read (text mid-
+        # animation) is never spoken. Doesn't cut off a highlight announced
+        # in the same poll (switching tabs changes both).
+        if screen_key == self.last_spoken_screen_key and screen_key[0] == "lib":
+            if live == self.last_spoken_live or not live:
+                self.pending_live = None
+                self.pending_live_seen_count = 0
+            elif live == self.pending_live:
+                self.pending_live_seen_count += 1
+                if self.pending_live_seen_count >= STABLE_POLLS_REQUIRED:
+                    print("Live region changed (stable):", live)
+                    self.speaker.speak(live, interrupt=not spoke_highlight)
+                    self.last_spoken_live = live
+                    self.pending_live = None
+                    self.pending_live_seen_count = 0
+            else:
+                self.pending_live = live
+                self.pending_live_seen_count = 1
 
 
 def run_reader(args, speaker):

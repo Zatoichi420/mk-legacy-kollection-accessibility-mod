@@ -12,10 +12,10 @@
   "roi": [
     0,
     0,
-    600,
-    720
+    780,
+    450
   ],
-  "roi_reason": "The right ~55% of this screen is a rotating/ambient background image unrelated to menu state - confirmed by comparing 5 separate captures of this identical menu, which hashed 39-66 bits apart at full-frame vs. 3-7 bits apart once cropped to this left column. Cropping to the static text column keeps the hash meaningful.",
+  "roi_reason": "Logo area only (2026-10-11). The menu rows change with the highlight and the right side is a rotating background; title_check confirms the match.",
   "canonical_text": [
     "MORTAL KOMBAT LEGACY KOLLECTION",
     "PLAY",
@@ -104,5 +104,14 @@
         880.0
       ]
     }
-  ]
+  ],
+  "title_check": {
+    "bbox": [
+      120,
+      360,
+      740,
+      440
+    ],
+    "text": "LEGACY KOLLECTION"
+  }
 }

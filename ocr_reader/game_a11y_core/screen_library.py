@@ -115,6 +115,15 @@ class ScreenLibrary:
                 "hash": img_hash,
                 "capture_size": data.get("capture_size"),
                 "ocr_lines_raw": data.get("ocr_lines_raw", []),
+                # Optional, added 2026-10-11 (used by the MK Legacy
+                # Kollection reader's main.py; ignored by older readers):
+                # title_check = {"bbox": [...], "text": "PLAY"}, OCR'd to
+                # confirm a hash match before trusting it; live_regions =
+                # [{"bbox": [...]}], read by OCR on every poll because their
+                # text changes while the screen stays the same (e.g. the
+                # selected game in the Game Library carousel).
+                "title_check": data.get("title_check"),
+                "live_regions": data.get("live_regions", []),
             })
 
     def match(self, frame: Image.Image, max_distance=MATCH_DISTANCE_THRESHOLD):

@@ -71,7 +71,16 @@
     0,
     0,
     780,
-    720
+    450
   ],
-  "roi_reason": "The right side is a rotating background (a spiked tower and stone statues seen on different visits); hash only the left menu column, as launcher__main_menu does."
+  "roi_reason": "Title area only (2026-10-11): menu rows change with the highlight, the right side is a rotating background. title_check confirms the match.",
+  "title_check": {
+    "bbox": [
+      280,
+      210,
+      620,
+      350
+    ],
+    "text": "PLAY"
+  }
 }

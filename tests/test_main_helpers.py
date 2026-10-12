@@ -94,3 +94,13 @@ def test_clean_ocr_line_drops_highlight_ornaments_only():
     assert clean_ocr_line("16") == "16"
     assert clean_ocr_line("HRS MINS") == "HRS MINS"
     assert clean_ocr_line("MORTAL KOMBAT 3") == "MORTAL KOMBAT 3"
+
+
+def test_title_matches_tolerates_ocr_noise_but_not_other_titles():
+    from main import title_matches
+
+    assert title_matches("LEGACY KOLLECTION", ["LEGACY KOLL E CT ION"])
+    assert title_matches("PLAY", ["PLAY"])
+    assert title_matches("GAME LIBRARY", ["GAME LIBRARV"])
+    assert not title_matches("PLAY", ["OPTIONS"])
+    assert not title_matches("GAME LIBRARY", [])
