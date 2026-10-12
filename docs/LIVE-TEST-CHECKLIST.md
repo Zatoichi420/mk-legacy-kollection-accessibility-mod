@@ -55,6 +55,22 @@ log line confirms it, for when speech alone isn't conclusive.
 - [ ] Press F10 while in another app (Notepad, say): nothing happens, and it
       doesn't toggle the reader later when you return to the game.
 
+## 3b. Added overnight 2026-10-11 (check these especially)
+
+- [ ] Game Library: move left and right with the controller stick and the
+      d-pad. Each game is read as name, year and platform, once it stops
+      moving. The four "Mortal Kombat, 1993" versions each say their own
+      platform.
+- [ ] Any game's pause menu (Escape): read in full, then each item as you
+      move. Moves List reads each fighter's moves. Reset Game and Quit Game
+      dialogs read "No" and "Yes" as you move between them.
+- [ ] Options: each setting is read with its value; changing a value with
+      left or right announces the new value.
+- [ ] Arcade Mortal Kombat and Mortal Kombat II character select: moving the
+      selection reads each fighter's name.
+- [ ] During a fight the reader stays quiet.
+- [ ] The Krypt: Documentary, Lore, Kombatants and Music Player are read.
+
 ## 4. Without NVDA
 
 - [ ] If the display scaling is not 100%, note it here. The reader now

@@ -8,14 +8,19 @@ The game draws its menus as pictures, so screen readers can't see them on their 
 
 ## What it reads
 
-Screens the reader already knows are read word for word, with hand-checked text:
+- **The launcher**: main menu, Play menu, the Game Library, every game's own menu, Options (each setting with its value, and changes as you make them), The Krypt (Documentary, Lore, Kombatants, Music Player), Kombat Kard, and the Quit and Reset dialogs. Each new screen is read in full and ends with what's selected, for example "Selected: Play". Moving the cursor reads just the new item.
+- **The Game Library carousel**: each game's name, year and platform, for example "Mortal Kombat. 1993. Sega Genesis". Switching tabs reads the tab, then the game.
+- **Every game's pause menu** (Escape in a game): Resume, Moves List (with each fighter's moves), On-screen move list, Additional settings, Screen options, Controls, Save, Load, Reset and Quit, plus their confirmation dialogs.
+- **Fighter names on character select** in arcade Mortal Kombat (1992) and arcade Mortal Kombat II. These games print no names, so the reader works out which portrait the selection box is on.
+- Screens the reader doesn't know are read with Windows' text recognition, cleaned up against a list of the words this game uses. The older games' pixel fonts still come out garbled at times, for example their story screens. Press **F9** to hear a screen again.
 
-- The launcher: main menu, Play menu, the Game Library tabs (All, Arcade, Console), the per-game menus for Mortal Kombat and Mortal Kombat II, and the Quit Game dialog.
-- Mortal Kombat II (arcade): Choose Your Fighter, the pause menu, the continue screen, Prepare For Your Next Kombat, and Game Over.
+The reader stays quiet during fights and on attract-mode score tables, which only produce noise.
 
-Any other screen is read with Windows' built-in text recognition. This is best-effort: stylised fonts can come out garbled or not at all. Press **F9** to try again.
+### Known limits
 
-Not covered: the fights themselves, and fighter names on character select (the games only show a name once a fighter is highlighted).
+- Character select in the other games (Mortal Kombat 3 onward and the console versions) doesn't name the fighter yet.
+- A very short highlighted value, such as "TV" in Screen options, sometimes isn't read; you hear just the setting's name.
+- Online modes (Quick Match, Online Arcade) haven't been tested.
 
 ## What you need
 

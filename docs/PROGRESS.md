@@ -1501,3 +1501,55 @@ connected.
   `docs/LIVE-TEST-CHECKLIST.md` is still open.
 - A real JAWS install: the JAWS voice is unit-tested against a fake JAWS
   API only. Checklist section 4b covers it.
+
+## 9. Overnight live-test pass on the real game (2026-10-11/12)
+
+The user tested with NVDA and Be My Eyes and reported: main and Play menus
+incomplete, the controller "reads everything", and no feedback in a game's
+pause menu. Then asked for iterative work and audits until it was good
+enough to test on all games and menus. All of this was driven live against
+the real game with synthetic keyboard input and a silent reader
+(`--speech none`), checking its log after every change.
+
+### What was wrong
+
+- Several library entries were the cut-off DPI-era captures (main menu,
+  Play menu, Game Library, per-game menus, quit dialog). Re-captured or
+  retired; per-game menus are now read live (all games share one layout).
+- Steam Big Picture was open in the background and took the controller's
+  input, so the stick drove Steam's own menus (which NVDA read) rather than
+  the game. Closing Big Picture fixed it; the reader now logs which window
+  took focus, and a focus blip under 5 s no longer re-reads the screen.
+- Unknown screens were read with one plain OCR pass, which garbled this
+  game's menu font, dropped highlighted (glowing) items, split settings from
+  values, and re-read the whole screen on every cursor move.
+
+### What was built
+
+- `menu_ocr.py`: two OCR passes (as-is and black-on-white) merged line by
+  line; snapping to a vocabulary of this game's words (`vocabulary.txt`
+  plus every library entry); row repair for unreadable short labels; row
+  merging (setting + value, never across columns); multi-column reading
+  order; bullets, key-icon digits, dim background text and junk lines
+  removed; paragraph joining; a reading-quality score.
+- Reader: fuzzy screen identity, so a moved highlight announces just the
+  item; row memory, so a highlighted item that won't OCR is still named;
+  highlight rescue (OCR the highlight-coloured area directly); glowing
+  values read fresh, so value changes are announced; "Selected: X" at the
+  end of full reads; short re-announcements for recently read screens and
+  scrolled lists; hint bars read once; noise readings (fights, score
+  tables) ignored; poll interval 0.3 s.
+- Library entries: `title_check` (OCR confirms a hash match),
+  `live_regions` (Game Library's selected game), `selection_grid` (arcade
+  MK1 and MK2 character select, validated live on every fighter).
+- `platform_icons.py`: the carousel's platform icon (8 platforms,
+  0 misses across 40 live captures).
+- Tests: 66.
+
+### Not done / known limits
+
+- Character select names for MK3 onward and the console versions.
+- Very short glowing values ("TV") sometimes unread.
+- Online modes untested.
+- The PC went into Modern Standby around 22:00 and the session resumed at
+  06:50, so far fewer games were covered than planned.

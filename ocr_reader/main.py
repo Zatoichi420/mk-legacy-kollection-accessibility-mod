@@ -764,7 +764,7 @@ class Reader:
             highlighted_text = self.entry_highlight(full, entry)
             live = self.live_text(full, entry) if entry.get("live_regions") else None
             if live:
-                screen_payload += ". " + live
+                screen_payload = menu_ocr.join_texts([screen_payload, live])
         else:
             if self.noisy_streak >= 2:
                 # Looks like a fight: OCR only every few polls.

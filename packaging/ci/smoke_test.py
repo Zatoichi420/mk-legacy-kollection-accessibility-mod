@@ -92,7 +92,9 @@ def test_self_test():
         with open(report_path, encoding="utf-8") as f:
             report = json.load(f)
         print(json.dumps(report, indent=2))
-        check(report["library_entries"] >= 18, f"library loaded ({report['library_entries']} screens)")
+        expected = sum(1 for n in os.listdir(KNOWN) if n.endswith(".json")
+                       and json.load(open(os.path.join(KNOWN, n), encoding="utf-8")).get("canonical_text"))
+        check(report["library_entries"] == expected, f"library loaded ({report['library_entries']} of {expected} screens)")
         check(report["library_mismatches"] == [], "every library screen recognises itself")
         check(report["nvda_dll_present"], "NVDA controller DLL is bundled")
     check("DPI awareness: per-monitor" in data.log(), "process made itself DPI-aware")
