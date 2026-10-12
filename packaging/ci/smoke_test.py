@@ -201,15 +201,27 @@ def test_installer():
     check(wait_for(lambda: run_value() is None, 30), "uninstall removes the start-at-sign-in entry")
 
 
+def _restore_run_value(value):
+    """The installer test installs and uninstalls under the same sign-in
+    entry name as a real install. On a developer's own PC, put their entry
+    back afterwards (found 2026-10-12: running this removed it)."""
+    if value is None:
+        return
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+        winreg.SetValueEx(key, RUN_VALUE, 0, winreg.REG_SZ, value)
+
+
 def main():
     if not os.path.isfile(EXE):
         sys.exit(f"Build first: {EXE} not found")
+    original_run_value = run_value()
     for test in (test_self_test, test_background_and_stop, test_end_to_end_with_fake_game, test_installer):
         print(f"\n=== {test.__name__} ===", flush=True)
         try:
             test()
         except Exception as exc:
             check(False, f"{test.__name__} raised {exc!r}")
+    _restore_run_value(original_run_value)
     print(f"\n{len(failures)} failure(s)")
     for message in failures:
         print("  - " + message)
