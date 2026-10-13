@@ -128,6 +128,9 @@ class ScreenLibrary:
                 # fixed grid with no printed names (arcade character
                 # select); see main.Reader.grid_selection.
                 "selection_grid": data.get("selection_grid"),
+                # Optional (2026-10-12): this entry's own match threshold,
+                # used only when looser than MATCH_DISTANCE_THRESHOLD.
+                "match_distance": data.get("match_distance"),
             })
 
     def match(self, frame: Image.Image, max_distance=MATCH_DISTANCE_THRESHOLD):
@@ -161,9 +164,14 @@ class ScreenLibrary:
                 frame_hash = compute_dhash(frame, entry["roi"])
                 hash_cache[roi_key] = frame_hash
             distance = hamming_distance(frame_hash, entry["hash"])
+            # An entry may allow a looser match than the default (its
+            # match_distance), e.g. a screen that renders a little
+            # differently at another resolution and has a title check too.
+            if distance > max(max_distance, entry.get("match_distance") or 0):
+                continue
             if best_distance is None or distance < best_distance:
                 best = entry
                 best_distance = distance
-        if best is not None and best_distance <= max_distance:
+        if best is not None:
             return best, best_distance
         return None

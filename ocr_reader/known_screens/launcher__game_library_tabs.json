@@ -16,6 +16,8 @@
     230
   ],
   "roi_reason": "Title bar plus tab row (2026-10-11, re-captured live at 1920x1080). The tab row is what tells this screen apart from the per-game menus, which share the GAME LIBRARY title bar. title_check confirms the title and tab names.",
+  "match_distance": 38,
+  "match_distance_reason": "2026-10-12: with the game windowed at 1280x720 (upscaled to 1920x1080) this screen scored 25-28, just past the default 24, so it flipped between this entry and OCR fallback on every move. The nearest look-alike, a game's own menu under the same GAME LIBRARY title, scores 51-58; title_check still has to pass.",
   "canonical_text": [
     "GAME LIBRARY",
     "ALL",

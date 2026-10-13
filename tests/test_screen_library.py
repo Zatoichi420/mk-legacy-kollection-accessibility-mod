@@ -57,7 +57,8 @@ def test_no_two_screens_are_confusable(library):
         if a["roi"] and a["capture_size"] and tuple(a["capture_size"]) != frame.size:
             continue  # match() skips this pairing too
         distance = hamming_distance(compute_dhash(frame, a["roi"]), a["hash"])
-        assert distance > MATCH_DISTANCE_THRESHOLD, f"{b['screen_id']} would be read as {a['screen_id']} (distance {distance})"
+        limit = max(MATCH_DISTANCE_THRESHOLD, a.get("match_distance") or 0)
+        assert distance > limit, f"{b['screen_id']} would be read as {a['screen_id']} (distance {distance})"
         closest = distance if closest is None else min(closest, distance)
     assert closest is not None
 
@@ -93,3 +94,25 @@ def test_missing_directory_is_ignored(tmp_path):
     lib = ScreenLibrary(str(tmp_path / "does-not-exist"))
     lib.add_directory(str(tmp_path / "also-missing"))
     assert lib.entries == []
+
+
+FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
+
+
+def _windowed(name):
+    with Image.open(os.path.join(FIXTURES, name)) as img:
+        return img.convert("RGB").crop((0, 0, 1280, 720))
+
+
+def test_windowed_game_library_matches(library):
+    """Live 2026-10-12: windowed at 1280x720 the Game Library scored 25-28,
+    just past the default threshold, and flipped to OCR on every move. Its
+    entry's match_distance covers that."""
+    result = library.match(_windowed("windowed_game_library_720p.png"))
+    assert result is not None and result[0]["screen_id"] == "launcher__game_library_tabs"
+
+
+def test_windowed_game_submenu_is_not_the_game_library(library):
+    """The look-alike under the same GAME LIBRARY title must still miss."""
+    result = library.match(_windowed("windowed_game_submenu_720p.png"))
+    assert result is None or result[0]["screen_id"] != "launcher__game_library_tabs"
