@@ -74,6 +74,10 @@ POLL_INTERVAL_SECONDS = 0.3
 # Still re-OCR at least this often, so a changed value (ON -> OFF) is caught.
 OCR_REUSE_MAX_HASH_DISTANCE = 10
 OCR_REUSE_MAX_AGE_SECONDS = 2.0
+# 2026-10-12, user reported a lag between moving and hearing the item. A
+# change is spoken only once two polls agree, so while one is waiting to be
+# confirmed, poll again almost at once instead of after the full interval.
+CONFIRM_POLL_SECONDS = 0.05
 # A screen that never stops changing (a fight, an attract animation) gets
 # one best-effort reading, then silence and slower OCR until something
 # steady appears again.
@@ -128,7 +132,8 @@ class _TimestampedTee:
         pieces = []
         for chunk in text.splitlines(keepends=True):
             if self._at_line_start:
-                pieces.append(time.strftime("%Y-%m-%d %H:%M:%S "))
+                now = time.time()
+                pieces.append(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)) + f".{int(now % 1 * 1000):03d} ")
             pieces.append(chunk)
             self._at_line_start = chunk.endswith("\n")
         out = "".join(pieces)
@@ -418,6 +423,7 @@ class Reader:
             if wait_for_event(self.stop_event, 0):
                 print("Stop requested; exiting.")
                 return 0
+            started = time.monotonic()
             try:
                 delay = self.poll_once()
             except Exception as exc:
@@ -435,6 +441,10 @@ class Reader:
                 delay = POLL_INTERVAL_SECONDS
             else:
                 self.consecutive_poll_failures = 0
+            # The interval runs from the start of a poll, so a slow one (a
+            # full-screen OCR takes most of a second) isn't followed by the
+            # whole interval again.
+            delay = max(0.0, delay - (time.monotonic() - started))
             if wait_for_event(self.stop_event, delay):
                 print("Stop requested; exiting.")
                 return 0
@@ -538,6 +548,11 @@ class Reader:
             return POLL_INTERVAL_SECONDS
 
         self.track_screen(full, view, match_result)
+        # Not during a fight (noisy_streak): the screen never settles there,
+        # and polling fast would just run full OCR back to back.
+        pending = self.pending_screen_key is not None or self.pending_highlight is not None or self.pending_live is not None
+        if pending and self.noisy_streak < 2:
+            return CONFIRM_POLL_SECONDS
         return POLL_INTERVAL_SECONDS
 
     def verified_match(self, full, view):
@@ -579,11 +594,16 @@ class Reader:
         now = time.monotonic()
         if self.ocr_cache is not None:
             cached_hash, cached_at, cached_lines = self.ocr_cache
+            # A highlight waiting to be confirmed would be held up by a whole
+            # second of OCR; the routine refresh can wait one more poll.
             if (hamming_distance(frame_hash, cached_hash) <= OCR_REUSE_MAX_HASH_DISTANCE
-                    and now - cached_at < OCR_REUSE_MAX_AGE_SECONDS):
+                    and (now - cached_at < OCR_REUSE_MAX_AGE_SECONDS or self.pending_highlight is not None)):
                 return cached_lines, True
         lines = menu_ocr.read_menu_text(full, clean_ocr_line)
-        self.ocr_cache = (frame_hash, now, lines)
+        took = time.monotonic() - now
+        if took > 0.5:
+            print(f"Full-screen OCR took {took:.2f}s")
+        self.ocr_cache = (frame_hash, time.monotonic(), lines)
         return lines, False
 
     def announcement_for(self, screen_key, payload, highlighted, live):
