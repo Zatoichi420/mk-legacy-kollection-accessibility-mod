@@ -18,6 +18,7 @@
 #include <windows.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <algorithm>
 #include <map>
 #include <string>
 #include <vector>
@@ -123,8 +124,26 @@ void Say(const std::string& raw, bool queue = false) {
 
 // Single texts worth reading: not button-glyph placeholders like
 // "{menu_cancel}", not bare numbers (timers, counters).
+// Valid UTF-8 with no control characters (some call sites pass things
+// that aren't text at all).
+bool LooksLikeText(const std::string& t) {
+    bool alnum = false;
+    for (size_t i = 0; i < t.size();) {
+        unsigned char c = (unsigned char)t[i];
+        int extra = c < 0x80 ? 0 : (c >> 5) == 6 ? 1 : (c >> 4) == 14 ? 2 : (c >> 3) == 30 ? 3 : -1;
+        if (extra < 0 || i + extra >= t.size() + (extra ? 0 : 1)) return false;
+        if (extra == 0 && c < 0x20) return false;
+        for (int k = 1; k <= extra; k++)
+            if (((unsigned char)t[i + k] >> 6) != 2) return false;
+        if (extra == 0 && isalnum(c)) alnum = true;
+        if (extra) alnum = true;
+        i += extra + 1;
+    }
+    return alnum;
+}
+
 bool Readable(const std::string& t) {
-    if (t.empty() || t[0] == '{') return false;
+    if (t.empty() || t[0] == '{' || !LooksLikeText(t)) return false;
     if (t.size() == 4 && (t[0] == '1' || t[0] == '2') && isdigit((unsigned char)t[1]) && isdigit((unsigned char)t[2]) &&
         isdigit((unsigned char)t[3]))
         return true;  // a year: the Game Library tells versions apart by it
@@ -133,6 +152,7 @@ bool Readable(const std::string& t) {
     return false;
 }
 
+std::map<uintptr_t, int> g_siteMaxCount;          // call site -> most texts it has drawn in a frame
 std::map<uintptr_t, int> g_siteAge;               // call site -> frames running it has drawn text
 std::map<uintptr_t, std::string> g_prevSingles;  // single-text call sites last frame -> text
 std::map<uintptr_t, std::string> g_singleSaid;   // what was last spoken for each
@@ -179,9 +199,13 @@ void FinishFrame(const Frame& f) {
     // selected game's name, descriptions) after the selected item.
     std::map<uintptr_t, std::string> singles;
     std::vector<const Event*> headings, newInfos, infos;
+    for (auto& [site, n] : textCount) g_siteMaxCount[site] = (std::max)(g_siteMaxCount[site], n);  // parenthesised: windows.h defines max
     for (size_t k = 0; k < ev.size(); k++) {
         const Event& e = ev[k];
         if (!e.isText || textCount[e.site] != 1) continue;
+        // A list that shrank to one item isn't a heading or a description:
+        // the button-hint bar ("BACK") does this when options disappear.
+        if (g_siteMaxCount[e.site] > 1) continue;
         singles[e.site] = e.text;
         // A text between two items of one list is an item's value ("OFF");
         // it's read with its item.
@@ -190,11 +214,15 @@ void FinishFrame(const Frame& f) {
             if (ev[j].isText) { before = &ev[j]; break; }
         for (size_t j = k + 1; j < ev.size(); j++)
             if (ev[j].isText) { after = &ev[j]; break; }
-        if (before && after && before->site == after->site && textCount[before->site] >= 3) continue;
+        if (e.style == kValueStyle && before && after && before->site == after->site && textCount[before->site] >= 3)
+            continue;
         auto prev = g_prevSingles.find(e.site);
         bool appeared = prev == g_prevSingles.end();
         bool settled = !appeared && prev->second == e.text;  // same two frames running
         if (!Readable(e.text) || e.text == g_singleSaid[e.site]) continue;
+        // Value-style text alone is a value seen mid-build ("ENGLISH"), unless
+        // it's long enough to be a description.
+        if (e.style == kValueStyle && e.text.size() < 20) continue;
         if ((appeared || settled) && e.style == kHeadingStyle) headings.push_back(&e);  // includes a title replaced in place
         else if (settled) (age[e.site] <= 2 ? newInfos : infos).push_back(&e);
     }
@@ -213,7 +241,7 @@ void FinishFrame(const Frame& f) {
     }
     for (auto* e : newInfos) {  // a new screen's other texts: a pop-up's question
         g_singleSaid[e->site] = e->text;
-        Say(e->text);
+        Say(e->text, g_screenTextTick && GetTickCount() - g_screenTextTick < 1500);
         g_screenTextTick = GetTickCount();
     }
 
@@ -234,7 +262,8 @@ void FinishFrame(const Frame& f) {
     // 4. A list whose items are each followed by a colour, the selected one
     // in its own colour (game menu: gold FFF1AD2B among translucent blue).
     for (auto& [site, n] : textCount) {
-        if (n < 3 || age[site] == 0 || handled[site] || styles[site].size() != 1) continue;
+        if (n < 3 || age[site] == 0 || handled[site] || styles[site].size() != 1 || styles[site].count(kValueStyle))
+            continue;  // a column of values is never the menu
         std::vector<std::pair<size_t, uint32_t>> itemColor;  // item event index, colour after it
         std::map<uint32_t, int> colorUse;
         for (size_t i = 0; i < ev.size(); i++) {
@@ -269,7 +298,7 @@ void FinishFrame(const Frame& f) {
         if (c.isText || colorCount[c.site] != 1) continue;
         const Event& item = ev[i - 1];
         if (!item.isText || textCount[item.site] < 3 || age[item.site] == 0 || handled[item.site] ||
-            styles[item.site].size() != 1)
+            styles[item.site].size() != 1 || item.style == kValueStyle)
             continue;
         std::string spoken = item.text;
         for (size_t j = i + 1; j < ev.size(); j++) {
@@ -323,7 +352,7 @@ uintptr_t CallSite(const uint8_t* frame) { return *(const uintptr_t*)(frame + 0x
 // From the stubs, on the game's UI thread.
 extern "C" void TextCreateHit(uintptr_t ui, uintptr_t style, uintptr_t r8, uintptr_t text, const uint8_t* frame) {
     char buf[256];
-    if (!CopyText((const char*)text, buf, sizeof(buf))) return;
+    if (!CopyText((const char*)text, buf, sizeof(buf)) || !LooksLikeText(buf)) return;
     uintptr_t site = CallSite(frame);
     EnterCriticalSection(&g_lock);
     NextFrameIfNeeded();

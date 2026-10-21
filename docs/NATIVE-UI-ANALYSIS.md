@@ -1,72 +1,81 @@
-# Can Legacy Kollection's menus be read natively? (analysis, 2026-10-21)
+# Reading Legacy Kollection's menus natively (2026-10-21)
 
-Short answer: yes, and much better than with OCR. The earlier conclusion
-("immediate-mode ImGui, no widget tree, dead end") was wrong about which
-system draws the menus.
+Short answer: it works. A 64-bit add-on (`native/legacyhook`, loaded as
+`dinput8.dll`) speaks the selected menu item the moment it changes, with the
+game's own text. This replaces an earlier draft of this file that guessed
+the menus were Lua scripts; testing showed otherwise.
 
 ## What the game is made of (build of 2026-04, `mk_legacy_kollection.exe`)
 
 - 64-bit, address randomisation on, no symbols, but a full function table
   (`.pdata`), so every function's start and end is known.
-- **Dear ImGui 1.89.8 is linked in but does not draw the menus.** Reading
-  the live ImGui context showed one window, ImGui's built-in fallback
-  "Debug##Default", inactive. (Context pointer: global at RVA 0xDC8D80.
-  The game's ImGuiIO/Style are 11,520 bytes smaller than a default build,
-  so FrameCount is at +4400, not +15920. Gamepad navigation is on.)
-- **The menus are a Lua 5.3.5 UI**, from Digital Eclipse's own engine
-  (`bakesale/src/ui/ui_lua.cpp`). The program names the scripts
-  `init.lua`, `ui/constants.lua` and `ui/functions.lua`; they and the
-  screen scripts live in the 12 GB `assets.pie`, compressed.
-- The UI works like a web page: **documents** made of **elements** with
-  tags, text, layout and **navigation** (`set_nav`, `navigate`), and
-  **focus events** (`enter`, `leave`, `move`, `click`). Functions the
-  scripts call include `localize`, `push_document`, `pop_document`,
-  `show_modal`, `find_element`, `get_tag`, `text_set_color`.
-- Menu text styles are named after their state:
-  `fullscreen_menu_item_selected` / `_unselected`, `fullscreen_menu_title`,
-  `fullscreen_menu_description`, `fullscreen_menu_toggle_value_selected`,
-  `fullscreen_menu_slider_text_selected`, `game_pause_menu_progress`. So
-  the game itself knows which item is selected when it draws it.
-- The three PlayStation games run in `pancake_libretro_windows.dll`, a
-  libretro core that exports `retro_get_memory_data`, so their RAM can be
-  read. The arcade and other console games are emulated inside the exe.
+- **Dear ImGui 1.89.8 is linked in but doesn't draw the menus.** The live
+  ImGui context has one window, the inactive fallback "Debug##Default".
+  Its frame counter still ticks every frame, which the add-on uses.
+  (Context pointer at RVA 0xDC8D80; this build's ImGuiIO/Style are 11,520
+  bytes smaller than a default build, so FrameCount is at +4400.)
+- **Lua 5.3.5 and a Lua UI binding layer are linked in but unused** by the
+  launcher: hooks on `lua_load` and on the bindings (`localize`,
+  `push_document`, …) never fire.
+- **The menus are C++ code using Digital Eclipse's UI engine**
+  (`bakesale/src/ui/ui_lua.cpp` names the same functions the Lua bindings
+  wrap). Each menu is rebuilt every frame, immediate-mode style:
+  - text create, RVA 0x145BC0: `rcx` = UI, `edx` = style number,
+    `r9` = UTF-8 text, `xmm1` = y.
+  - set colour, RVA 0x139720: `rcx` = UI, `edx` = ARGB; applies to the
+    element just created.
+  - text lookup, RVA 0x1086E0: key (`str_play_uc`) to text ("PLAY").
+- The PlayStation games run in `pancake_libretro_windows.dll` (exports
+  `retro_get_memory_data`); the arcade and other console games are emulated
+  inside the exe. Screens inside the emulated games (fighter select) aren't
+  drawn by the UI engine.
 
-## Why the current reader feels slow
+## How the add-on finds the selected item
 
-Each full-screen OCR pass takes 0.5–1.3 s (reader.log), and a screen is
-only spoken once two passes agree, so a menu move is heard 1–3 s later,
-and OCR misreads or cuts off stylised text. The MK9 native hook built on
-2026-10-20 speaks within ~0.1 s with the game's exact text; the same is
-possible here.
+Every text and colour call in a frame is recorded with its call site (the
+return address). Texts from one call site are one list. The selected item
+is:
 
-## Plan
+1. **the one with its own style number** (main menu and sub-menus: 7 among
+   6; two-item pop-ups like NO / YES use the same pair);
+2. **the one whose following colour differs** from the others' (a game's
+   menu, pause-menu settings: gold `FFF1AD2B` among `A02B529B`);
+3. **the one followed by a colour call made once per frame** (Options).
 
-1. **Loader.** The game imports DINPUT8, so the same proxy-DLL approach as
-   MK9 works, built for x64. (The old proxy in the game folder is disabled
-   and must not be re-enabled as is; see `proxy_dll/README.md`.)
-2. **Find Lua 5.3.5's API in the exe.** Anchor strings are present
-   ("attempt to load a %s chunk", "C stack overflow", "stack traceback",
-   "_ENV"); compile Lua 5.3.5 with MSVC x64 and match functions
-   (`lua_load`, `lua_pcallk`, `lua_pushcclosure`, `lua_setglobal`,
-   `lua_getglobal`), and find `localize` and the UI's C functions from the
-   `ui_lua.cpp` registration table.
-3. **Dump the UI scripts** as the game loads them (hook `lua_load`). This
-   shows exactly how each screen builds its menu, names its items and
-   moves the selection. Read-only, safe first step.
-4. **Speak from inside the UI.** Either hook the C side of focus changes
-   (the `enter` event / `navigate`), reading the focused element's text,
-   or register a `speak()` function in the game's Lua and wrap the menu
-   functions in Lua so each selection change calls it with the localized
-   label, value and description. Both give the exact text, instantly, with
-   the real selection: launcher menus, Game Library, settings, the in-game
-   pause menus and move lists.
-5. **Keep OCR for what Lua doesn't draw**: fighter select and other
-   screens inside the emulated games. Later, read the PlayStation games'
-   RAM through `retro_get_memory_data` for fighter names (RetroAchievements
-   memory notes may already map the cursor addresses).
-6. Make the OCR reader stay quiet on screens the hook covers (named mutex),
-   and add the DLL to Setup.exe.
+A value-style text (style 11) right after the selected item is its value:
+"MENU MUSIC, ON". Headings (style 8) and a new screen's other texts (a
+pop-up's question, a game's description) are said first; a text that
+changes as you move (the Game Library's game name, a fighter in the Krypt)
+is said after the item. Lists wait one frame after they appear so the
+heading comes first. Button placeholders such as `{menu_accept}` become
+words, and the button-hint bar isn't read.
 
-Risks: online features use PlayFab (the hook must only read and speak);
-game updates move addresses, so the hook should find functions by byte
-patterns and switch itself off safely if a pattern isn't found.
+## Checked with scripted input, speech muted (2026-10-21 overnight)
+
+Title prompt, intro text, main menu, PLAY sub-menu, Options (values and
+changes), Online Options, Game Library (filter tabs, game names), a game's
+menu and description, in-game pause menu, Additional Settings, the
+Quit Game pop-up (question, message, NO / YES), the Krypt menu,
+Kombatants gallery, Kombat Kard. Speech on was also run (inside the game,
+with the PC muted) without problems.
+
+## Not done yet
+
+- Game Library: the platform (shown only as an icon) and the year. Several
+  versions share a name ("Mortal Kombat"), so they currently sound alike.
+- Moves List (needs a fight in progress to test), Controls, Flyers,
+  Documentary and Lore viewers, the volume slider's value, emulator
+  messages (rewind, save state).
+- Kombat Kard's tabs and pairing its labels with values.
+- Screens inside the emulated games (fighter select) still need the OCR
+  reader; it should stay quiet on screens the add-on covers (named mutex),
+  and the installer should copy the add-on into the game folder.
+- Game updates move the addresses; each hook checks its function's first
+  bytes and switches itself off if they don't match.
+
+## Developer tools
+
+`legacyhook_probe.txt` (RVAs, one per line; `t` after one logs every call's
+raw arguments while `legacyhook_trace_on` exists), `legacyhook_frames.txt`
+(log every new screen's texts), `legacyhook.ini` (`[speech] mute=1` logs
+`SAY` lines without speaking).
