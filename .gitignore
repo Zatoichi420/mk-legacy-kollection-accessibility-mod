@@ -38,3 +38,4 @@ proxy_dll/third_party/
 
 # Stray empty file from an earlier session, not real content
 /nul
+native/legacyhook/out/
