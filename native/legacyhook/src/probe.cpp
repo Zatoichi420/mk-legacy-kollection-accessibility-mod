@@ -64,7 +64,7 @@ void Note(size_t id, int arg, const char* how, const char* text) {
     bool fresh = g_seen.size() < 20000 && g_seen.insert({id, text}).second;
     if (fresh) p.hits++;
     LeaveCriticalSection(&g_lock);
-    if (fresh && p.hits <= 60) LogLine("PROBE %06zx arg%d %s \"%s\"", p.rva, arg, how, text);
+    if (fresh && p.hits <= 500) LogLine("PROBE %06zx arg%d %s \"%s\"", p.rva, arg, how, text);
 }
 
 }  // namespace

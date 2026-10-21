@@ -79,18 +79,75 @@ bool CopyText(const char* p, char* out, size_t cap) {
     return n > 0;
 }
 
-void Say(const std::string& text) {
+bool g_saidThisFrame;  // the first thing said in a frame interrupts, the rest queue
+
+// "{menu_accept}" -> "accept": the game draws these placeholders as button
+// pictures for whichever controller is in use.
+std::string SpeakablePlaceholders(const std::string& in) {
+    if (in.compare(0, 19, "PRESS {menu_accept}") == 0) return "Press Enter, or A on a controller, to start";
+    std::string out;
+    for (size_t i = 0; i < in.size(); i++) {
+        size_t end = in[i] == '{' ? in.find('}', i) : std::string::npos;
+        if (end == std::string::npos) {
+            out += in[i];
+            continue;
+        }
+        std::string name = in.substr(i + 1, end - i - 1);
+        if (name.compare(0, 5, "menu_") == 0) name.erase(0, 5);
+        for (auto& c : name)
+            if (c == '_') c = ' ';
+        if (!out.empty() && out.back() != ' ') out += ' ';
+        out += name + " button";
+        i = end;
+    }
+    return out;
+}
+
+DWORD g_lastSayTick;
+DWORD g_screenTextTick;       // when a new screen's heading/question was last said
+int g_frameNumber;            // frame being finished
+int g_lastItemFrame = -100;   // when the last selected item was announced
+std::string g_lastItemText;
+
+// queue: speak after whatever is being said instead of cutting it off.
+void Say(const std::string& raw, bool queue = false) {
+    std::string text = SpeakablePlaceholders(raw);
     if (text == g_lastSaid) return;
     g_lastSaid = text;
-    LogLine("SAY! %s", text.c_str());
-    if (!g_muted) speech::Say(text, true);
+    bool interrupt = !g_saidThisFrame && !queue;
+    g_saidThisFrame = true;
+    g_lastSayTick = GetTickCount();
+    LogLine("SAY%s %s", interrupt ? "!" : " ", text.c_str());
+    if (!g_muted) speech::Say(text, interrupt);
 }
+
+// Single texts worth reading: not button-glyph placeholders like
+// "{menu_cancel}", not bare numbers (timers, counters).
+bool Readable(const std::string& t) {
+    if (t.empty() || t[0] == '{') return false;
+    if (t.size() == 4 && (t[0] == '1' || t[0] == '2') && isdigit((unsigned char)t[1]) && isdigit((unsigned char)t[2]) &&
+        isdigit((unsigned char)t[3]))
+        return true;  // a year: the Game Library tells versions apart by it
+    for (char c : t)
+        if (!isdigit((unsigned char)c) && c != ':' && c != '.' && c != ' ' && c != '%') return true;
+    return false;
+}
+
+std::map<uintptr_t, int> g_siteAge;               // call site -> frames running it has drawn text
+std::map<uintptr_t, std::string> g_prevSingles;  // single-text call sites last frame -> text
+std::map<uintptr_t, std::string> g_singleSaid;   // what was last spoken for each
+const uint32_t kHeadingStyle = 8;                // "GAME OPTIONS", "PLAY", "GAME LIBRARY"
+const uint32_t kValueStyle = 11;                 // a setting's value: "ON", "ENGLISH"
 
 void Announce(uintptr_t site, const std::string& text) {
     std::string& last = g_lastSelected[site];
     if (text == last) return;
     last = text;
-    Say(text);
+    // Right after a new screen's heading or question, queue behind it.
+    Say(text, g_screenTextTick && GetTickCount() - g_screenTextTick < 1500);
+    g_screenTextTick = 0;
+    g_lastItemFrame = g_frameNumber;
+    g_lastItemText = text;
 }
 
 // Called when a new frame starts, with everything the last one drew.
@@ -107,13 +164,101 @@ void FinishFrame(const Frame& f) {
         }
     }
     std::map<uintptr_t, bool> handled;
+    g_saidThisFrame = false;
+    // How many frames running each call site has drawn text. A list that
+    // only just appeared waits a frame, so the new screen's heading and
+    // texts (a pop-up's question) are said before its selected item.
+    std::map<uintptr_t, int> age;
+    for (auto& [site, n] : textCount) {
+        auto it = g_siteAge.find(site);
+        age[site] = it == g_siteAge.end() ? 0 : it->second + 1;
+    }
+
+    // 3a. Single texts (a call site that made exactly one text this frame):
+    // headings of a screen that just appeared go first, other texts (the
+    // selected game's name, descriptions) after the selected item.
+    std::map<uintptr_t, std::string> singles;
+    std::vector<const Event*> headings, newInfos, infos;
+    for (size_t k = 0; k < ev.size(); k++) {
+        const Event& e = ev[k];
+        if (!e.isText || textCount[e.site] != 1) continue;
+        singles[e.site] = e.text;
+        // A text between two items of one list is an item's value ("OFF");
+        // it's read with its item.
+        const Event *before = nullptr, *after = nullptr;
+        for (size_t j = k; j-- > 0;)
+            if (ev[j].isText) { before = &ev[j]; break; }
+        for (size_t j = k + 1; j < ev.size(); j++)
+            if (ev[j].isText) { after = &ev[j]; break; }
+        if (before && after && before->site == after->site && textCount[before->site] >= 3) continue;
+        auto prev = g_prevSingles.find(e.site);
+        bool appeared = prev == g_prevSingles.end();
+        bool settled = !appeared && prev->second == e.text;  // same two frames running
+        if (!Readable(e.text) || e.text == g_singleSaid[e.site]) continue;
+        if ((appeared || settled) && e.style == kHeadingStyle) headings.push_back(&e);  // includes a title replaced in place
+        else if (settled) (age[e.site] <= 2 ? newInfos : infos).push_back(&e);
+    }
+    g_frameNumber = f.number;
+    bool itemJustSaid = f.number - g_lastItemFrame <= 5;
+    for (auto* e : headings) {
+        g_singleSaid[e->site] = e->text;
+        Say(e->text);
+        g_screenTextTick = GetTickCount();
+    }
+    if (!headings.empty() && itemJustSaid) {
+        // The screen's heading arrived a frame or two after its first
+        // item: say the item again after the heading.
+        g_lastSaid.clear();
+        Say(g_lastItemText, true);
+    }
+    for (auto* e : newInfos) {  // a new screen's other texts: a pop-up's question
+        g_singleSaid[e->site] = e->text;
+        Say(e->text);
+        g_screenTextTick = GetTickCount();
+    }
 
     // 1. A list whose selected item has its own style.
     for (auto& [site, counts] : styles) {
-        if (textCount[site] < 3 || counts.size() != 2) continue;
+        if (age[site] == 0 || counts.size() != 2) continue;
+        // Two-item lists (a pop-up's NO / YES) use the main menu's pair:
+        // 7 selected, 6 not.
+        bool pair = textCount[site] == 2 && counts.count(7) && counts.count(6);
+        if (textCount[site] < 3 && !pair) continue;
         for (auto& e : ev)
-            if (e.isText && e.site == site && counts[e.style] == 1) {
+            if (e.isText && e.site == site && (pair ? e.style == 7 : counts[e.style] == 1)) {
                 Announce(site, e.text);
+                handled[site] = true;
+            }
+    }
+
+    // 4. A list whose items are each followed by a colour, the selected one
+    // in its own colour (game menu: gold FFF1AD2B among translucent blue).
+    for (auto& [site, n] : textCount) {
+        if (n < 3 || age[site] == 0 || handled[site] || styles[site].size() != 1) continue;
+        std::vector<std::pair<size_t, uint32_t>> itemColor;  // item event index, colour after it
+        std::map<uint32_t, int> colorUse;
+        for (size_t i = 0; i < ev.size(); i++) {
+            if (!ev[i].isText || ev[i].site != site) continue;
+            for (size_t j = i + 1; j < ev.size() && !(ev[j].isText && ev[j].site == site); j++)
+                if (!ev[j].isText) {
+                    itemColor.push_back({i, ev[j].style});
+                    colorUse[ev[j].style]++;
+                    break;
+                }
+        }
+        if ((int)itemColor.size() != n || colorUse.size() != 2) continue;
+        for (auto& [idx, color] : itemColor)
+            if (colorUse[color] == 1) {
+                std::string spoken = ev[idx].text;
+                for (size_t j = idx + 1; j < ev.size(); j++) {
+                    if (!ev[j].isText) continue;
+                    if (ev[j].site != site && ev[j].style == kValueStyle) {
+                        spoken += ", " + ev[j].text;
+                        handled[ev[j].site] = true;
+                    }
+                    break;
+                }
+                Announce(site, spoken);
                 handled[site] = true;
             }
     }
@@ -123,11 +268,13 @@ void FinishFrame(const Frame& f) {
         const Event& c = ev[i];
         if (c.isText || colorCount[c.site] != 1) continue;
         const Event& item = ev[i - 1];
-        if (!item.isText || textCount[item.site] < 3 || handled[item.site] || styles[item.site].size() != 1) continue;
+        if (!item.isText || textCount[item.site] < 3 || age[item.site] == 0 || handled[item.site] ||
+            styles[item.site].size() != 1)
+            continue;
         std::string spoken = item.text;
         for (size_t j = i + 1; j < ev.size(); j++) {
             if (!ev[j].isText) continue;
-            if (ev[j].site != item.site) {
+            if (ev[j].site != item.site && ev[j].style == kValueStyle) {
                 spoken += ", " + ev[j].text;  // its value
                 handled[ev[j].site] = true;   // the value's own highlight isn't another list
             }
@@ -136,6 +283,15 @@ void FinishFrame(const Frame& f) {
         Announce(item.site, spoken);
         handled[item.site] = true;
     }
+
+    // 3b. Other single texts that changed.
+    for (auto* e : infos) {
+        if (handled[e->site]) continue;
+        g_singleSaid[e->site] = e->text;
+        Say(e->text, GetTickCount() - g_lastSayTick < 1000);  // don't cut off the item it describes
+    }
+    g_prevSingles = singles;
+    g_siteAge = age;
 
     if (g_logFrames) {
         std::string shape;
@@ -182,6 +338,7 @@ extern "C" void SetColorHit(uintptr_t ui, uintptr_t argb, uintptr_t r8, uintptr_
     NextFrameIfNeeded();
     g_cur.events.push_back({false, CallSite(frame), (uint32_t)argb, {}});
     LeaveCriticalSection(&g_lock);
+    if (probe::TraceOn()) LogLine("COL  site %llx argb %08llx", (unsigned long long)CallSite(frame), (unsigned long long)argb);
 }
 
 namespace {
