@@ -5,14 +5,151 @@
   "source": "live_capture",
   "source_note": "Captured via F2 on 2026-09-12 while playing arcade Mortal Kombat II.",
   "verified_against_live_game": true,
-  "capture_size": [1280, 720],
+  "capture_size": [
+    1280,
+    720
+  ],
   "canonical_text": [
     "CHOOSE YOUR FIGHTER"
   ],
-  "notes": "Two-player character select grid, portraits only (no printed fighter names on the grid itself). Player 1 cursor shown as a green box (Liu Kang, selection index visible as a green '1' badge); a red box is visible at the right capture edge for Player 2. No 'CREDITS' line visible in this capture, unlike the MK1 reference entry - not included here since it wasn't actually on screen.",
+  "notes": "Two-player character select grid, portraits only (no printed fighter names on the grid itself). Player 1 cursor shown as a green box (Liu Kang, selection index visible as a green '1' badge); a red box is visible at the right capture edge for Player 2. No 'CREDITS' line visible in this capture, unlike the MK1 reference entry - not included here since it wasn't actually on screen. 2026-10-11: selection_grid added - LIU KANG, KUNG LAO, JOHNNY CAGE, REPTILE / SUB-ZERO, SHANG TSUNG, KITANA, JAX / MILEENA, BARAKA, SCORPION, RAIDEN.",
   "verified_by": "claude_vision",
   "verified_at": "2026-09-12",
   "ocr_lines_raw": [
-    {"text": "CHOOSE YOUR FIGHTER", "bbox": [720.0, 41.0, 1280.0, 108.0], "ocr_original": "OSBYOURF'GHT (OCR only caught a fragment of the truncated-at-frame-edge header)", "skip_highlight": true}
-  ]
+    {
+      "text": "CHOOSE YOUR FIGHTER",
+      "bbox": [
+        720.0,
+        41.0,
+        1280.0,
+        108.0
+      ],
+      "ocr_original": "OSBYOURF'GHT (OCR only caught a fragment of the truncated-at-frame-edge header)",
+      "skip_highlight": true
+    }
+  ],
+  "selection_grid": {
+    "color_min": [
+      0,
+      151,
+      0
+    ],
+    "color_max": [
+      109,
+      255,
+      109
+    ],
+    "ring": 10,
+    "cells": [
+      {
+        "name": "LIU KANG",
+        "bbox": [
+          566,
+          120,
+          764,
+          414
+        ]
+      },
+      {
+        "name": "KUNG LAO",
+        "bbox": [
+          776,
+          120,
+          968,
+          414
+        ]
+      },
+      {
+        "name": "JOHNNY CAGE",
+        "bbox": [
+          982,
+          120,
+          1174,
+          414
+        ]
+      },
+      {
+        "name": "REPTILE",
+        "bbox": [
+          1188,
+          120,
+          1378,
+          414
+        ]
+      },
+      {
+        "name": "SUB-ZERO",
+        "bbox": [
+          566,
+          430,
+          764,
+          706
+        ]
+      },
+      {
+        "name": "SHANG TSUNG",
+        "bbox": [
+          776,
+          430,
+          968,
+          706
+        ]
+      },
+      {
+        "name": "KITANA",
+        "bbox": [
+          982,
+          430,
+          1174,
+          706
+        ]
+      },
+      {
+        "name": "JAX",
+        "bbox": [
+          1188,
+          430,
+          1378,
+          706
+        ]
+      },
+      {
+        "name": "MILEENA",
+        "bbox": [
+          566,
+          724,
+          764,
+          1006
+        ]
+      },
+      {
+        "name": "BARAKA",
+        "bbox": [
+          776,
+          724,
+          968,
+          1006
+        ]
+      },
+      {
+        "name": "SCORPION",
+        "bbox": [
+          982,
+          724,
+          1174,
+          1006
+        ]
+      },
+      {
+        "name": "RAIDEN",
+        "bbox": [
+          1188,
+          724,
+          1378,
+          1006
+        ]
+      }
+    ],
+    "what": "Player 1's green selection box; the game prints no fighter names here. Validated live 2026-10-11 across all twelve."
+  }
 }

@@ -1,3 +1,4 @@
+# Runtime dependencies. Python 3.12 (winsdk has no newer wheels).
 pywin32==312
 pillow==12.3.0
 numpy==2.5.1

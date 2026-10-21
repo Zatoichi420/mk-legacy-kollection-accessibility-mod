@@ -11,6 +11,7 @@ fullscreen mode makes PrintWindow return a silent zero-size capture
 
 import ctypes
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 
 import win32gui
 import win32ui
@@ -25,15 +26,68 @@ class CaptureStrategy(ABC):
         raise NotImplementedError
 
 
+@contextmanager
+def _dpi_context_of(hwnd):
+    """Run the enclosed calls in the target window's own DPI awareness.
+
+    Added 2026-10-11. GetClientRect and PrintWindow only agree on the
+    image's size when the caller and the window use the same DPI awareness.
+    The reader makes itself DPI-aware (frames.enable_dpi_awareness), which
+    fixed a DPI-aware game captured by an unaware reader. But with display
+    scaling on, a DPI-*unaware* window then reports its scaled-up size while
+    PrintWindow draws it at its unscaled size: the image lands in the
+    top-left corner of a mostly black bitmap and no library screen matches.
+    Reproduced at 150% scaling with packaging/ci/fake_game.py (a Tk window,
+    which is DPI-unaware). Borrowing the window's own awareness for the
+    duration of the capture is correct in both directions, and a no-op when
+    the two already agree. Falls through silently on Windows versions
+    without these calls (before Windows 10 1607).
+    """
+    user32 = ctypes.windll.user32
+    previous = None
+    try:
+        user32.GetWindowDpiAwarenessContext.restype = ctypes.c_void_p
+        user32.GetWindowDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+        user32.SetThreadDpiAwarenessContext.restype = ctypes.c_void_p
+        user32.SetThreadDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+        context = user32.GetWindowDpiAwarenessContext(hwnd)
+        if context:
+            previous = user32.SetThreadDpiAwarenessContext(context)
+    except (AttributeError, OSError):
+        previous = None
+    try:
+        yield
+    finally:
+        if previous:
+            user32.SetThreadDpiAwarenessContext(previous)
+
+
 class PrintWindowCapture(CaptureStrategy):
     PW_RENDERFULLCONTENT = 0x00000002
 
     def grab(self, hwnd):
+        with _dpi_context_of(hwnd):
+            return self._grab(hwnd)
+
+    def _grab(self, hwnd):
         left, top, right, bottom = win32gui.GetClientRect(hwnd)
         width = right - left
         height = bottom - top
         if width <= 0 or height <= 0:
             return None
+        # PrintWindow draws the WHOLE window, title bar and borders included,
+        # starting at the bitmap's top-left. Found live 2026-10-12 with the
+        # game switched to windowed mode: a client-sized bitmap held the title
+        # bar plus the game shifted down ~30px, so no library screen matched
+        # (Game Library fell back to OCR and stopped naming the selected game).
+        # Draw the full window, then crop out the client area. In fullscreen
+        # or borderless the offsets are 0 and nothing changes.
+        win_left, win_top, win_right, win_bottom = win32gui.GetWindowRect(hwnd)
+        client_x, client_y = win32gui.ClientToScreen(hwnd, (0, 0))
+        offset_x = client_x - win_left
+        offset_y = client_y - win_top
+        full_width = max(win_right - win_left, offset_x + width)
+        full_height = max(win_bottom - win_top, offset_y + height)
 
         hwnd_dc = None
         mfc_dc = None
@@ -45,18 +99,19 @@ class PrintWindowCapture(CaptureStrategy):
             save_dc = mfc_dc.CreateCompatibleDC()
 
             save_bitmap = win32ui.CreateBitmap()
-            save_bitmap.CreateCompatibleBitmap(mfc_dc, width, height)
+            save_bitmap.CreateCompatibleBitmap(mfc_dc, full_width, full_height)
             save_dc.SelectObject(save_bitmap)
 
             ctypes.windll.user32.PrintWindow(hwnd, save_dc.GetSafeHdc(), self.PW_RENDERFULLCONTENT)
 
             bmpinfo = save_bitmap.GetInfo()
             bmpstr = save_bitmap.GetBitmapBits(True)
-            return Image.frombuffer(
+            image = Image.frombuffer(
                 "RGB",
                 (bmpinfo["bmWidth"], bmpinfo["bmHeight"]),
                 bmpstr, "raw", "BGRX", 0, 1,
             )
+            return image.crop((offset_x, offset_y, offset_x + width, offset_y + height))
         finally:
             # Always release GDI resources, even if a call above raised - leaving
             # any of these held leaks a handle every poll (twice a second) and
