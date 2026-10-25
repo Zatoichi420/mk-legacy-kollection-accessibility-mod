@@ -2,7 +2,7 @@
 
 Speaks the menus of **Mortal Kombat Legacy Kollection** (Windows, Steam) for blind and low-vision players. It reads each menu screen when it appears, and the highlighted item as you move through a menu. It speaks through NVDA or JAWS, and through the Windows voice for Narrator users or when no screen reader is running.
 
-The game draws its menus as pictures, so screen readers can't see them on their own. This reader runs alongside the game, recognises the screen, and speaks it. It doesn't change the game or any of its files.
+The game draws its menus as pictures, so screen readers can't see them on their own. This reader runs alongside the game, recognises the screen, and speaks it. It doesn't change the game or any of its files. An optional, experimental add-on (the native menu hook, see [Install](#install)) goes in the game's folder.
 
 **Status:** early release (1.0). It has been tested by the developer only. Reports of what works and what doesn't are very welcome. See [Reporting problems](#reporting-problems).
 
@@ -41,6 +41,16 @@ The reader stays quiet during fights and on attract-mode score tables, which onl
 3. Run the file. Because the installer isn't code-signed, Windows may show a **"Windows protected your PC"** screen. Move to the **More info** link and activate it, then move to the **Run anyway** button that appears and activate it.
 4. Follow the setup wizard. It doesn't ask for administrator rights. There's one option, a checkbox that is ticked by default: **Start the reader automatically when I sign in to Windows**. Leave it ticked unless you'd rather start the reader yourself each time. The reader stays silent until the game is open.
 5. On the last page, leave **Start the accessibility reader now** ticked and choose **Finish**. You should hear "Accessibility reader ready. Waiting for the game."
+
+### Optional: the native menu hook (NVDA only, experimental)
+
+The release also has a file named `MK-Legacy-Kollection-Access-NativeHook`. It is a small add-on that the game loads itself. It reads the highlighted launcher menu item straight from the game, which is faster and more exact than reading the screen. It speaks through NVDA only, and it only works with the current Steam version of the game; with any other version it does nothing.
+
+1. Download the zip and extract it.
+2. Copy `dinput8.dll` and `nvdaControllerClient.dll` into the game's folder, the one that holds `mk_legacy_kollection.exe`. In Steam, you can find it from the game's Properties, Installed Files, Browse.
+3. Start the game as usual.
+
+To remove it, delete those two files from the game's folder. It writes a log, `legacyhook_log.txt`, in the same folder. This is the one part of this project that does add files to the game's folder.
 
 ## Using it
 
