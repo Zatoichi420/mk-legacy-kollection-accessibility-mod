@@ -3,20 +3,84 @@
   "game": "launcher",
   "screen_type": "submenu",
   "source": "live_capture",
-  "source_note": "Captured via F2 on 2026-09-12 during a live Phase 0 regression test.",
+  "source_note": "Re-captured live 2026-10-11 at full 1920x1080 (the 2026-09-12 capture was cut off below QUICK MATCH and its hash image never matched the live game). Item list confirmed independently by a Be My Eyes description.",
   "verified_against_live_game": true,
-  "capture_size": [1280, 720],
+  "capture_size": [
+    1280,
+    720
+  ],
   "canonical_text": [
     "PLAY",
     "OFFLINE",
-    "QUICK MATCH"
+    "QUICK MATCH",
+    "ONLINE ARCADE",
+    "ONLINE OPTIONS"
   ],
-  "notes": "Reached from the main menu's PLAY item. OFFLINE and QUICK MATCH are the two selectable items (cyan/gold highlight, same scheme as other launcher menus); QUICK MATCH sits right at the bottom capture edge, so there may be more items below not yet seen - treat this list as possibly incomplete, same caveat as launcher__main_menu.",
+  "notes": "Reached from the main menu's PLAY item. Four selectable items. Bboxes are full-frame coordinates.",
   "verified_by": "claude_vision",
-  "verified_at": "2026-09-12",
+  "verified_at": "2026-10-11",
   "ocr_lines_raw": [
-    {"text": "PLAY", "bbox": [309.0, 256.0, 569.0, 346.0], "skip_highlight": true},
-    {"text": "OFFLINE", "bbox": [341.0, 556.0, 542.0, 600.0]},
-    {"text": "QUICK MATCH", "bbox": [341.0, 630.0, 549.0, 672.0], "ocr_original": "MATCH (OCR only caught the second word; bbox widened to cover both)"}
-  ]
+    {
+      "text": "PLAY",
+      "bbox": [
+        317.0,
+        233.0,
+        579.0,
+        330.0
+      ],
+      "skip_highlight": true
+    },
+    {
+      "text": "OFFLINE",
+      "bbox": [
+        371.0,
+        541.0,
+        505.0,
+        574.0
+      ]
+    },
+    {
+      "text": "QUICK MATCH",
+      "bbox": [
+        326.0,
+        620.0,
+        546.0,
+        656.0
+      ]
+    },
+    {
+      "text": "ONLINE ARCADE",
+      "bbox": [
+        242.0,
+        718.0,
+        632.0,
+        766.0
+      ]
+    },
+    {
+      "text": "ONLINE OPTIONS",
+      "bbox": [
+        298.0,
+        785.0,
+        561.0,
+        823.0
+      ]
+    }
+  ],
+  "roi": [
+    0,
+    0,
+    780,
+    450
+  ],
+  "roi_reason": "Title area only (2026-10-11): menu rows change with the highlight, the right side is a rotating background. title_check confirms the match.",
+  "title_check": {
+    "bbox": [
+      280,
+      210,
+      620,
+      350
+    ],
+    "text": "PLAY"
+  }
 }

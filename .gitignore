@@ -2,10 +2,18 @@
 __pycache__/
 *.pyc
 
-# Runtime output, not source
+# Runtime output, not source. The reader now writes these under
+# %LOCALAPPDATA%\MKLegacyKollectionAccess; kept for older checkouts.
 ocr_reader/reader_log.txt
 ocr_reader/library_misses/
 ocr_reader/reader.lock
+
+# Developer-mode (F2) full-screen review images - only the cropped .png is a library file
+ocr_reader/known_screens/*.full.png
+
+# Packaging output (packaging/build.py)
+/build/
+/dist/
 
 # Dev/calibration scratch captures - large, superseded by ocr_reader/known_screens/
 # (a handful of these were hand-reviewed and promoted into known_screens/ already)
@@ -30,3 +38,4 @@ proxy_dll/third_party/
 
 # Stray empty file from an earlier session, not real content
 /nul
+native/legacyhook/out/

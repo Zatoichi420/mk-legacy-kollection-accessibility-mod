@@ -1,0 +1,105 @@
+{
+  "screen_id": "mk1__choose_your_fighter_arcade",
+  "game": "mk1",
+  "screen_type": "character_select",
+  "source": "live_capture",
+  "source_note": "Captured live 2026-10-11 at 1920x1080 (arcade Mortal Kombat, 1992). Replaces a web-image entry that never matched the real game.",
+  "verified_against_live_game": true,
+  "capture_size": [
+    1280,
+    720
+  ],
+  "roi": [
+    240,
+    0,
+    1280,
+    520
+  ],
+  "roi_reason": "Title plus the top row of portraits (2026-10-11): the pixel-art title alone shimmers under the TV filter (distance 34 between two live frames); with the portraits it is 14, wherever the selection box is.",
+  "canonical_text": [
+    "CHOOSE YOUR FIGHTER"
+  ],
+  "selection_grid": {
+    "what": "Player 1's green selection box. The game prints no fighter names on this screen, so the name comes from which portrait the box surrounds.",
+    "color_min": [
+      0,
+      151,
+      0
+    ],
+    "color_max": [
+      109,
+      255,
+      109
+    ],
+    "ring": 10,
+    "cells": [
+      {
+        "name": "JOHNNY CAGE",
+        "bbox": [
+          355,
+          180,
+          585,
+          518
+        ]
+      },
+      {
+        "name": "KANO",
+        "bbox": [
+          595,
+          178,
+          840,
+          526
+        ]
+      },
+      {
+        "name": "SUB-ZERO",
+        "bbox": [
+          1100,
+          180,
+          1335,
+          518
+        ]
+      },
+      {
+        "name": "SONYA",
+        "bbox": [
+          1350,
+          180,
+          1585,
+          518
+        ]
+      },
+      {
+        "name": "RAIDEN",
+        "bbox": [
+          600,
+          540,
+          835,
+          870
+        ]
+      },
+      {
+        "name": "LIU KANG",
+        "bbox": [
+          850,
+          540,
+          1085,
+          870
+        ]
+      },
+      {
+        "name": "SCORPION",
+        "bbox": [
+          1100,
+          540,
+          1335,
+          870
+        ]
+      }
+    ]
+  },
+  "notes": "Grid: JOHNNY CAGE, KANO, (dragon emblem), SUB-ZERO, SONYA on top; RAIDEN, LIU KANG, SCORPION below. Validated live 2026-10-11 by moving through all seven. A countdown auto-picks the highlighted fighter after about ten seconds.",
+  "verified_by": "claude_vision",
+  "verified_at": "2026-10-11",
+  "ocr_lines_raw": []
+}
